@@ -1,0 +1,37 @@
+  const handleBackToHome = () => {
+    // Reset Data Entry Forms & Search States
+    setNewBuildingName('');
+    setUnitForm({ unitId: '', floor: '', area: '', view: '', price: '', finishedPrice: '', status: 'available', share: '', plan: '' });
+    setNewCustomer({ id: '', name: '', phone: '', phone2: '', email: '', idCardPath: '' });
+    setNewSale({ id: '', name: '', phone: '', email: '', idCardPath: '' });
+    setOfferForm({
+      date: formatExcelDate(new Date()), startDate: '', downPayment: '', years: '', frequency: 'quarterly',
+      priceType: 'base', discountPercent: 0, salesId: '', firstInstallmentDate: '', startingChequeNumber: '',
+      bank: '', paymentMethod: 'Cheque', finalPrice: 0, downPaymentAmount: 0, installmentAmount: 0, numInstallments: 0
+    });
+    setContractForm({ contractId: '', date: formatExcelDate(new Date()), totalPrice: '', downPayment: '', years: '', frequency: 'quarterly', notes: '', salesId: '' });
+
+    // Reset Filters
+    setSearchQuery('');
+    setFilterStatus('all');
+    setFilterNotFullyPaid(false);
+    setFilterLate(false);
+    setFromDate('');
+    setToDate('');
+    setSalesSearchQuery('');
+    setReminderSearchQuery('');
+    setChequeSearchQuery('');
+    setCustomerSearchQuery('');
+    setSearchTermTerminated('');
+
+    // Reset Selections
+    setActiveBuilding(null);
+    setEditingInstallment(null);
+    setViewingContract(null);
+    setViewingOffer(null);
+    setEditingSales(null);
+    setEditingCustomer(null);
+
+    setCurrentView('home');
+  };
+

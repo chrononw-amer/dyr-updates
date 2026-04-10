@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>DYR Tutorial</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Cairo', sans-serif; background: #0F172A; color: white; overflow: hidden; width: 100vw; height: 100vh; }
+
+  .slide {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    opacity: 0; transform: scale(0.95);
+    transition: opacity 0.8s ease, transform 0.8s ease;
+    padding: 60px;
+  }
+  .slide.active { opacity: 1; transform: scale(1); z-index: 10; }
+
+  .slide-icon { font-size: 80px; margin-bottom: 20px; filter: drop-shadow(0 0 30px rgba(240,147,43,0.4)); }
+  .slide-num { position: absolute; top: 30px; left: 30px; font-size: 18px; color: #64748B; font-weight: 600; }
+  .slide-title { font-size: 52px; font-weight: 900; margin-bottom: 16px; text-align: center; line-height: 1.3; }
+  .slide-title span { color: #f0932b; }
+  .slide-desc { font-size: 24px; color: #94A3B8; text-align: center; max-width: 800px; line-height: 1.8; }
+  .slide-features { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; margin-top: 30px; }
+  .feature-chip {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    padding: 12px 24px; border-radius: 12px; font-size: 18px; color: #CBD5E1;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .feature-chip .chip-icon { font-size: 24px; }
+
+  .logo-text { font-size: 100px; font-weight: 900; letter-spacing: 8px; }
+  .logo-text span { color: #f0932b; }
+  .logo-sub { font-size: 28px; color: #64748B; margin-top: 10px; }
+
+  .progress-bar { position: fixed; bottom: 0; left: 0; height: 4px; background: linear-gradient(90deg, #f0932b, #ffbe76); z-index: 99; transition: width 0.3s linear; }
+
+  .gradient-orb {
+    position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.15; pointer-events: none;
+  }
+  .orb1 { width: 400px; height: 400px; background: #f0932b; top: -100px; right: -100px; }
+  .orb2 { width: 300px; height: 300px; background: #2563EB; bottom: -100px; left: -50px; }
+
+  .grid-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 30px; max-width: 900px; }
+  .grid-card {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+    padding: 20px; border-radius: 16px; text-align: center;
+  }
+  .grid-card .gc-icon { font-size: 36px; margin-bottom: 8px; }
+  .grid-card .gc-title { font-size: 18px; font-weight: 700; color: #E2E8F0; }
+  .grid-card .gc-desc { font-size: 14px; color: #64748B; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<!-- SLIDE 1: Intro -->
+<div class="slide active" id="s1">
+  <div class="gradient-orb orb1"></div>
+  <div class="gradient-orb orb2"></div>
+  <div class="logo-text">D<span>Y</span>R</div>
+  <div class="logo-sub">نظام إدارة التطوير العقاري</div>
+  <div class="slide-desc" style="margin-top: 30px">دليل شامل لاستخدام التطبيق</div>
+</div>
+
+<!-- SLIDE 2: Dashboard -->
+<div class="slide" id="s2">
+  <div class="gradient-orb orb1"></div>
+  <div class="slide-num">01 / 12</div>
+  <div class="slide-icon">📊</div>
+  <div class="slide-title">لوحة <span>التحكم</span></div>
+  <div class="slide-desc">الصفحة الرئيسية — بتعرض نظرة عامة على كل البيانات: عدد العقارات، العملاء، العروض، العقود، والأقساط. كل حاجة في مكان واحد.</div>
+  <div class="slide-features">
+    <div class="feature-chip"><span class="chip-icon">🏢</span> إجمالي العقارات</div>
+    <div class="feature-chip"><span class="chip-icon">👥</span> عدد العملاء</div>
+    <div class="feature-chip"><span class="chip-icon">📋</span> العقود النشطة</div>
+    <div class="feature-chip"><span class="chip-icon">💰</span> إجمالي التحصيلات</div>
+  </div>
+</div>
+
+<!-- SLIDE 3: Properties -->
+<div class="slide" id="s3">
+  <div class="gradient-orb orb2"></div>
+  <div class="slide-num">02 / 12</div>
+  <div class="slide-icon">🏗️</div>
+  <div class="slide-title">إدارة <span>العقارات</span></div>
+  <div class="slide-desc">أضف مباني جديدة وأدر الوحدات داخل كل مبنى. شوف حالة كل وحدة (متاحة - محجوزة - مباعة) مع تفاصيل المساحة والسعر.</div>
+  <div class="slide-features">
+    <div class="feature-chip"><span class="chip-icon">➕</span> إضافة مباني</div>
+    <div class="feature-chip"><span class="chip-icon">📐</span> تفاصيل الوحدات</div>
+    <div class="feature-chip"><span class="chip-icon">📊</span> تعديل أسعار جماعي</div>
+    <div class="feature-chip"><span class="chip-icon">📥</span> استيراد من Excel</div>
+  </div>
+</div>
+
+<!-- SLIDE 4: Clients -->
+<div class="slide" id="s4">
+  <div class="gradient-orb orb1"></div>
+  <div class="slide-num">03 / 12</div>
+  <div class="slide-icon">👥</div>
+  <div class="slide-title">إدارة <span>العملاء</span></div>
+  <div class="slide-desc">سجل بيانات كل عميل: الاسم، الموبايل، الإيميل، رقم البطاقة. ابحث بسرعة وأضف عملاء جداد أو استوردهم من Excel.</div>
+  <div class="slide-features">
+    <div class="feature-chip"><span class="chip-icon">🔍</span> بحث سريع</div>
+    <div class="feature-chip"><span class="chip-icon">🪪</span> بطاقة الهوية</div>
+    <div class="feature-chip"><span class="chip-icon">📥</span> استيراد Excel</div>
+    <div class="feature-chip"><span class="chip-icon">📤</span> تصدير البيانات</div>
+  </div>
+</div>
+
+<!-- SLIDE 5: Offers -->
+<div class="slide" id="s5">
+  <div class="gradient-orb orb2"></div>
+  <div class="slide-num">04 / 12</div>
+  <div class="slide-icon">🏷️</div>
+  <div class="slide-title">إنشاء <span>العروض</span></div>
+  <div class="slide-desc">اختار العميل والوحدة وحدد خطة السداد — الخصم، المقدم، عدد السنوات والتكرار. النظام بيحسب كل حاجة تلقائي ويعرض خطة الأقساط.</div>
+  <div class="slide-features">
+    <div class="feature-chip"><span class="chip-icon">🔎</span> بحث العميل</div>
+    <div class="feature-chip"><span class="chip-icon">🏠</span> اختيار الوحدة</div>
+    <div class="feature-chip"><span class="chip-icon">📊</span> حساب تلقائي</div>
+    <div class="feature-chip"><span class="chip-icon">⚡</span> تعبئة سريعة</div>
+  </div>
+</div>
+
+<!-- SLIDE 6: Contracts -->
+<div class="slide" id="s6">
+  <div class="gradient-orb orb1"></div>
+  <div class="slide-num">05 / 12</div>
+  <div class="slide-icon">📜</div>
+  <div class="slide-title">إدارة <span>العقود</span></div>
+  <div class="slide-desc">حوّل أي عرض لعقد رسمي بضغطة واحدة. تابع كل العقود النشطة مع تفاصيل العميل والوحدة وخطة السداد الكاملة.</div>
+  <div class="slide-features">
+    <div class="feature-chip"><span class="chip-icon">✅</span> تحويل من عرض</div>
+    <div class="feature-chip"><span class="chip-icon">👥</span> شركاء ملكية</div>
+    <div class="feature-chip"><span class="chip-icon">🔄</span> إعادة بيع</div>
+    <div class="feature-chip"><span class="chip-icon">📄</span> طباعة PDF</div>
+  </div>
+</div>
+
+<!-- SLIDE 7: Installments -->
+<div class="slide" id="s7">
+  <div class="gradient-orb orb2"></div>
+  <div class="slide-num">06 / 12</div>
+  <div class="slide-icon">📅</div>
+  <div class="slide-title">متابعة <span>الأقساط</span></div>
+  <div class="slide-desc">تابع كل قسط بالتفصيل: التاريخ، المبلغ، حالة السداد، طريقة الدفع، ورقم الشيك. سجّل مدفوعات جزئية أو كاملة.</div>
+  <div class="slide-features">
+    <div class="feature-chip"><span class="chip-icon">💵</span> تسجيل دفعات</div>
+    <div class="feature-chip"><span class="chip-icon">✂️</span> تقسيم الأقساط</div>
+    <div class="feature-chip"><span class="chip-icon">📊</span> فلترة وبحث</div>
+    <div class="feature-chip"><span class="chip-icon">📤</span> تصدير Excel</div>
+  </div>
+</div>
+
+<!-- SLIDE 8: Cheques -->
+<div class="slide" id="s8">
+  <div class="gradient-orb orb1"></div>
+  <div class="slide-num">07 / 12</div>
+  <div class="slide-icon">🏦</div>
+  <div class="slide-title">إدارة <span>الشيكات</span></div>
+  <div class="slide-desc">تابع حالة كل شيك — مستلم، مودع، مرتجع. مع تفاصيل البنك ورقم الشيك وطباعة قوالب الشيكات.</div>
+  <div class="slide-features">
+    <div class="feature-chip"><span class="chip-icon">📝</span> قوالب شيكات</div>
+    <div class="feature-chip"><span class="chip-icon">🏦</span> تتبع الإيداع</div>
+    <div class="feature-chip"><span class="chip-icon">🔄</span> حالات متعددة</div>
+  </div>
+</div>
+
+<!-- SLIDE 9: Wallets -->
+<div class="slide" id="s9">
+  <div class="gradient-orb orb2"></div>
+  <div class="slide-num">08 / 12</div>
+  <div class="slide-icon">👛</div>
+  <div class="slide-title">المحافظ <span>المالية</span></div>
+  <div class="slide-desc">أنشئ محافظ مالية لتتبع التدفقات النقدية والمصاريف. سجّل الإيرادات والمصروفات وتابع الرصيد الحالي.</div>
+</div>
+
+<!-- SLIDE 10: Collections -->
+<div class="slide" id="s10">
+  <div class="gradient-orb orb1"></div>
+  <div class="slide-num">09 / 12</div>
+  <div class="slide-icon">💰</div>
+  <div class="slide-title">نظام <span>التحصيلات</span></div>
+  <div class="slide-desc">سجّل ملاحظات المتابعة لكل قسط متأخر. تابع تاريخ التواصل مع العملاء وحالة التحصيل بالتفصيل.</div>
+</div>
+
+<!-- SLIDE 11: Reminders -->
+<div class="slide" id="s11">
+  <div class="gradient-orb orb2"></div>
+  <div class="slide-num">10 / 12</div>
+  <div class="slide-icon">🔔</div>
+  <div class="slide-title">التنبيهات <span>والتذكيرات</span></div>
+  <div class="slide-desc">أرسل تذكيرات WhatsApp للعملاء بالأقساط المستحقة. النظام بيجهز الرسالة تلقائي مع تفاصيل المبلغ والتاريخ.</div>
+</div>
+
+<!-- SLIDE 12: Sales Force -->
+<div class="slide" id="s12">
+  <div class="gradient-orb orb1"></div>
+  <div class="slide-num">11 / 12</div>
+  <div class="slide-icon">🤝</div>
+  <div class="slide-title">فريق <span>المبيعات</span></div>
+  <div class="slide-desc">أدر فريق المبيعات: أضف مندوبين، اربطهم بالعروض والعقود، وتابع أداء كل مندوب. استورد البيانات من Excel.</div>
+</div>
+
+<!-- SLIDE 13: Outro -->
+<div class="slide" id="s13">
+  <div class="gradient-orb orb1"></div>
+  <div class="gradient-orb orb2"></div>
+  <div class="logo-text">D<span>Y</span>R</div>
+  <div class="slide-desc" style="margin-top: 30px; font-size: 28px; color: #E2E8F0;">كل اللي محتاجه لإدارة مشروعك العقاري<br>في مكان واحد</div>
+  <div class="slide-features" style="margin-top: 40px;">
+    <div class="feature-chip" style="border-color: #f0932b40; color: #f0932b;">🚀 ابدأ دلوقتي</div>
+  </div>
+</div>
+
+<div class="progress-bar" id="progress"></div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const progress = document.getElementById('progress');
+  let current = 0;
+  const DURATION = 3000; // ms per slide
+
+  function showSlide(n) {
+    slides.forEach(s => s.classList.remove('active'));
+    slides[n].classList.add('active');
+    progress.style.width = ((n + 1) / slides.length * 100) + '%';
+  }
+
+  setInterval(() => {
+    current = (current + 1) % slides.length;
+    showSlide(current);
+  }, DURATION);
+</script>
+</body>
+</html>

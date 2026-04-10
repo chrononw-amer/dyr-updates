@@ -1,0 +1,21 @@
+﻿
+C:\CHRONO DEVELOPMENT - 08-02-2026_2\src\App.jsx
+  232:6  warning  React Hook useEffect has missing dependencies: 'appSettings.fontSize' and 'appSettings.theme'. Either include them or remove the dependency array            react-hooks/exhaustive-deps
+  462:6  warning  React Hook useEffect has missing dependencies: 'offerForm.finalPrice' and 'offerForm.installmentAmount'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\CHRONO DEVELOPMENT - 08-02-2026_2\src\helpers\ReceiptGenerator.js
+   38:11  error  'contractDateFormatted' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+  168:15  error  'finalHeight' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u            no-unused-vars
+  171:15  error  'x' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                      no-unused-vars
+
+C:\CHRONO DEVELOPMENT - 08-02-2026_2\src\services\DataService.js
+  1143:14  error  'e' is defined but never used  no-unused-vars
+
+C:\CHRONO DEVELOPMENT - 08-02-2026_2\src\services\ExcelService.js
+  92:67  error  'sales' is assigned a value but never used  no-unused-vars
+
+C:\CHRONO DEVELOPMENT - 08-02-2026_2\src\services\PDFService.js
+  1:10  error  'jsPDF' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+ظ£û 8 problems (6 errors, 2 warnings)
+

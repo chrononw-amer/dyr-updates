@@ -1,0 +1,13 @@
+
+C:\CHRONO DEVELOPMENT\src\App.jsx
+   194:6    warning  React Hook useEffect has missing dependencies: 'appSettings.fontSize' and 'appSettings.theme'. Either include them or remove the dependency array            react-hooks/exhaustive-deps
+   389:6    warning  React Hook useEffect has missing dependencies: 'offerForm.finalPrice' and 'offerForm.installmentAmount'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+   706:24   error    'headers' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                      no-unused-vars
+   777:17   error    'currentCustomers' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                             no-unused-vars
+   902:17   error    'skipText' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                     no-unused-vars
+   914:131  error    'headers' is not defined                                                                                                                                     no-undef
+  1922:45   error    'index' is defined but never used                                                                                                                            no-unused-vars
+  3005:43   error    'rest' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                         no-unused-vars
+
+✖ 8 problems (6 errors, 2 warnings)
+

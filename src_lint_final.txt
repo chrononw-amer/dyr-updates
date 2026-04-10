@@ -1,0 +1,7 @@
+﻿
+C:\CHRONO DEVELOPMENT - 08-02-2026_2\src\App.jsx
+  232:6  warning  React Hook useEffect has missing dependencies: 'appSettings.fontSize' and 'appSettings.theme'. Either include them or remove the dependency array            react-hooks/exhaustive-deps
+  462:6  warning  React Hook useEffect has missing dependencies: 'offerForm.finalPrice' and 'offerForm.installmentAmount'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+ظ£û 2 problems (0 errors, 2 warnings)
+

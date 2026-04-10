@@ -1,0 +1,20 @@
+{
+    "short_name": "DYR",
+    "name": "DYR",
+    "icons": [
+        {
+            "src": "/icon.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/icon.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ],
+    "start_url": ".",
+    "display": "standalone",
+    "theme_color": "#0a0c10",
+    "background_color": "#0a0c10"
+}

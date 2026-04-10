@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Receipt — DYR</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', Arial, sans-serif;
+            background: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+            color: #000;
+        }
+        .receipt-page {
+            width: 794px;
+            min-height: 1123px;
+            background: #ffffff;
+            position: relative;
+            overflow: hidden;
+        }
+        /* Header - mimics company branding */
+        .header-bar {
+            height: 120px;
+            background: #1a1a2e;
+            position: relative;
+            display: flex;
+            align-items: center;
+            padding: 0 40px;
+        }
+        .header-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 200px;
+            height: 100%;
+            background: #e8792b;
+            clip-path: polygon(30% 0, 100% 0, 100% 100%, 0% 100%);
+        }
+        .company-logo {
+            z-index: 1;
+        }
+        .company-logo h1 {
+            color: #fff;
+            font-size: 32px;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+        .company-logo .subtitle {
+            color: rgba(255,255,255,0.5);
+            font-size: 11px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+        }
+
+        /* Content */
+        .content {
+            padding: 30px 40px;
+        }
+
+        /* Title */
+        .receipt-title {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .receipt-title h2 {
+            font-size: 24px;
+            color: #000;
+            letter-spacing: 1px;
+        }
+        .receipt-title .copy-label {
+            color: #eb445a;
+            font-weight: bold;
+            font-size: 14px;
+            letter-spacing: 1px;
+            margin-top: 5px;
+        }
+        .receipt-meta {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 15px;
+            font-size: 14px;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+
+        /* Details Area */
+        .details-area {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+            margin-bottom: 30px;
+        }
+        .details-table-wrap {
+            flex: 1.5;
+        }
+        .details-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .details-table thead tr {
+            background-color: #333;
+            color: #fff;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .details-table thead th {
+            padding: 12px;
+            text-align: left;
+        }
+        .details-table tbody td {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+        .details-table tbody td:first-child {
+            font-weight: bold;
+        }
+        .spacer-row td {
+            background: #fafafa;
+            padding: 10px !important;
+            border: none !important;
+        }
+        .highlight-row {
+            background-color: #fffde7 !important;
+            border: 2px solid #ffeb3b !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .highlight-row td:first-child {
+            font-size: 16px;
+            color: #f57f17;
+        }
+        .highlight-row td:last-child {
+            font-size: 20px;
+            font-weight: bold;
+            color: #1a1a1a;
+        }
+
+        /* Unit Map */
+        .unit-map-box {
+            flex: 1;
+            border: 2px solid #c5a059;
+            border-radius: 12px;
+            padding: 10px;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 350px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        }
+        .unit-map-label {
+            font-size: 12px;
+            color: #c5a059;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .unit-map-placeholder {
+            width: 90%;
+            height: 280px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #f9f9f9;
+            position: relative;
+        }
+        /* Simple floor plan drawing */
+        .floor-plan {
+            width: 80%;
+            height: 220px;
+            position: relative;
+        }
+        .floor-plan .room {
+            position: absolute;
+            border: 2px solid #999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            color: #666;
+            background: #fff;
+        }
+        .floor-plan .room.highlighted {
+            border-color: #e8792b;
+            background: #fff3e0;
+            color: #e8792b;
+            font-weight: bold;
+            font-size: 11px;
+        }
+
+        /* Amount in words */
+        .amount-words {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            font-style: italic;
+            border-left: 4px solid #c5a059;
+            font-size: 14px;
+        }
+
+        /* Signatures */
+        .signatures {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 80px;
+            font-size: 14px;
+        }
+        .sig-line {
+            text-align: center;
+            border-top: 1px solid #000;
+            width: 40%;
+            padding-top: 10px;
+        }
+        .thank-you {
+            text-align: center;
+            margin-top: 60px;
+            font-size: 12px;
+            color: #888;
+        }
+
+        /* Footer */
+        .footer-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 80px;
+            background: #1a1a2e;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 30px;
+            padding: 0 40px;
+        }
+        .footer-bar::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: #e8792b;
+        }
+        .footer-info {
+            color: rgba(255,255,255,0.7);
+            font-size: 12px;
+            text-align: center;
+        }
+        .footer-info .phones {
+            color: #fff;
+            font-weight: 700;
+            font-size: 13px;
+            margin-bottom: 4px;
+        }
+        .footer-logo {
+            position: absolute;
+            right: 40px;
+            color: #fff;
+            font-size: 20px;
+            font-weight: 700;
+        }
+        .footer-logo .sub {
+            font-size: 8px;
+            color: rgba(255,255,255,0.4);
+            letter-spacing: 2px;
+            display: block;
+        }
+
+        .print-btn {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: #e8792b;
+            color: white;
+            border: none;
+            padding: 14px 30px;
+            border-radius: 12px;
+            font-family: 'Inter', sans-serif;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            z-index: 100;
+        }
+        @media print {
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            body { background: white; padding: 0; }
+            .receipt-page { box-shadow: none; }
+            .print-btn { display: none !important; }
+        }
+    </style>
+</head>
+<body>
+
+<button class="print-btn" onclick="window.print()">🖨️ Print / Save PDF</button>
+
+<div class="receipt-page">
+    <!-- Header -->
+    <div class="header-bar">
+        <div class="company-logo">
+            <h1>Al-Nakheel</h1>
+            <div class="subtitle">Properties Development</div>
+        </div>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+        <!-- Title -->
+        <div class="receipt-title">
+            <h2>PAYMENT RECEIPT</h2>
+            <div class="copy-label">ORIGINAL RECEIPT</div>
+            <div class="receipt-meta">
+                <span><strong>Receipt #:</strong> REC-B308-1779823456012</span>
+                <span><strong>Date:</strong> 2026-03-15</span>
+            </div>
+        </div>
+
+        <!-- Details + Unit Map -->
+        <div class="details-area">
+            <div class="details-table-wrap">
+                <table class="details-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 40%;">Description</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Customer Name</td><td style="font-size: 16px;">Youssef Ahmed Ibrahim</td></tr>
+                        <tr><td>Joint Purchasers</td><td>Sara Mohamed Ali</td></tr>
+                        <tr><td>Unit Number</td><td>B308</td></tr>
+                        <tr><td>Contract Total</td><td>2,750,000 EGP</td></tr>
+                        <tr><td>Payment Date</td><td>2026-03-15</td></tr>
+                        <tr><td>Reason</td><td>Down Payment</td></tr>
+                        <tr><td>Payment Method</td><td>Cheque</td></tr>
+                        <tr><td>Bank Name</td><td>CIB</td></tr>
+                        <tr><td>Cheque Number</td><td>44821903</td></tr>
+                        <tr><td>Cheque Status</td><td>Received</td></tr>
+                        <tr><td>Deposited To</td><td>-</td></tr>
+                        <tr class="spacer-row"><td colspan="2"></td></tr>
+                        <tr><td>Installment Amount</td><td>275,000 EGP</td></tr>
+                        <tr><td>Total Paid So Far</td><td>275,000 EGP</td></tr>
+                        <tr><td>Remaining Balance</td><td>2,475,000 EGP</td></tr>
+                        <tr class="spacer-row"><td colspan="2"></td></tr>
+                        <tr class="highlight-row">
+                            <td>Current Payment</td>
+                            <td>275,000 EGP</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Unit Map -->
+            <div class="unit-map-box">
+                <span class="unit-map-label">UNIT MAP</span>
+                <div class="unit-map-placeholder">
+                    <div class="floor-plan">
+                        <!-- Simple floor plan -->
+                        <div class="room" style="top: 0; left: 0; width: 45%; height: 45%;">A306</div>
+                        <div class="room" style="top: 0; right: 0; width: 45%; height: 45%;">A307</div>
+                        <div class="room highlighted" style="bottom: 0; left: 0; width: 45%; height: 45%;">B308</div>
+                        <div class="room" style="bottom: 0; right: 0; width: 45%; height: 45%;">B309</div>
+                    </div>
+                    <span style="font-size: 10px; color: #999; margin-top: 8px;">B308 — Floor 3</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Amount in Words -->
+        <div class="amount-words">
+            The sum of: 275,000 EGP (EGP)
+        </div>
+
+        <!-- Signatures -->
+        <div class="signatures">
+            <div class="sig-line">Received By (DYR)</div>
+            <div class="sig-line">Customer Signature</div>
+        </div>
+
+        <div class="thank-you">Thank you for your business.</div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer-bar">
+        <div class="footer-info">
+            <div class="phones">01055512345 - 01123456789 - 01098765432</div>
+            <div>طريق التسعين — التجمع الخامس — القاهرة الجديدة</div>
+        </div>
+        <div class="footer-logo">
+            Al-Nakheel
+            <span class="sub">DEVELOPMENT</span>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,14 @@
+
+C:\CHRONO DEVELOPMENT\src\components\ReportsHub.jsx
+    6:42  error  'statsChart' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                  no-unused-vars
+    6:54  error  'search' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                      no-unused-vars
+   10:39  error  'updatePaymentReceiptInfo' is defined but never used. Allowed unused vars must match /^[A-Z_]/u    no-unused-vars
+   11:10  error  'generateReceiptPDF' is defined but never used. Allowed unused vars must match /^[A-Z_]/u          no-unused-vars
+   35:12  error  'reportFromDate' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u     no-unused-vars
+   35:28  error  'setReportFromDate' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+   36:12  error  'reportToDate' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u       no-unused-vars
+   36:26  error  'setReportToDate' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u    no-unused-vars
+  197:77  error  'data' is defined but never used                                                                   no-unused-vars
+
+✖ 9 problems (9 errors, 0 warnings)
+

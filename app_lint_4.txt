@@ -1,0 +1,8 @@
+
+C:\CHRONO DEVELOPMENT\src\App.jsx
+  194:6   warning  React Hook useEffect has missing dependencies: 'appSettings.fontSize' and 'appSettings.theme'. Either include them or remove the dependency array            react-hooks/exhaustive-deps
+  389:6   warning  React Hook useEffect has missing dependencies: 'offerForm.finalPrice' and 'offerForm.installmentAmount'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+  888:15  error    'skippedCount' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                 no-unused-vars
+
+✖ 3 problems (1 error, 2 warnings)
+

@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>عرض سعر — DYR</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800;900&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Cairo', sans-serif;
+            background: #f0f2f5;
+            color: #1a1a2e;
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .quote-page {
+            width: 210mm;
+            min-height: 297mm;
+            background: #ffffff;
+            padding: 0;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.15);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .quote-header {
+            background: linear-gradient(135deg, #0a1628 0%, #1a2744 100%);
+            padding: 40px 50px 35px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .quote-header::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at 20% 50%, rgba(37, 99, 235, 0.15) 0%, transparent 60%);
+        }
+
+        .header-content {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .logo-icon {
+            width: 55px;
+            height: 55px;
+            background: linear-gradient(135deg, #2563EB, #1d4ed8);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: white;
+            font-weight: 900;
+            letter-spacing: 1px;
+            box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
+        }
+
+        .logo-text h1 {
+            color: #ffffff;
+            font-size: 28px;
+            font-weight: 900;
+            letter-spacing: 2px;
+        }
+
+        .logo-text p {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 11px;
+            letter-spacing: 1px;
+        }
+
+        .quote-badge {
+            background: rgba(37, 99, 235, 0.2);
+            border: 1px solid rgba(37, 99, 235, 0.4);
+            padding: 10px 25px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .quote-badge h2 {
+            color: #60a5fa;
+            font-size: 20px;
+            font-weight: 800;
+        }
+
+        .quote-badge p {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 10px;
+            margin-top: 2px;
+        }
+
+        /* Blue accent line */
+        .accent-line {
+            height: 4px;
+            background: linear-gradient(90deg, #2563EB, #60a5fa, #2563EB);
+        }
+
+        /* Quote Info Section */
+        .quote-info {
+            display: flex;
+            justify-content: space-between;
+            padding: 25px 50px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .info-block h4 {
+            color: #64748b;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+
+        .info-block p {
+            color: #1e293b;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .info-block .editable {
+            color: #2563EB;
+            border-bottom: 1px dashed #2563EB;
+            padding-bottom: 2px;
+        }
+
+        /* Body Content */
+        .quote-body {
+            padding: 30px 50px;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 800;
+            color: #0a1628;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section-title .line {
+            flex: 1;
+            height: 2px;
+            background: linear-gradient(90deg, #e2e8f0, transparent);
+        }
+
+        /* Pricing Table */
+        .pricing-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 25px;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+        }
+
+        .pricing-table thead th {
+            background: #0a1628;
+            color: #ffffff;
+            padding: 14px 20px;
+            text-align: right;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .pricing-table thead th:last-child {
+            text-align: center;
+        }
+
+        .pricing-table tbody td {
+            padding: 16px 20px;
+            border-bottom: 1px solid #f1f5f9;
+            font-size: 13px;
+            vertical-align: top;
+        }
+
+        .pricing-table tbody tr:nth-child(even) {
+            background: #f8fafc;
+        }
+
+        .pricing-table tbody tr:hover {
+            background: #eff6ff;
+        }
+
+        .item-name {
+            font-weight: 700;
+            color: #1e293b;
+            font-size: 14px;
+        }
+
+        .item-desc {
+            color: #64748b;
+            font-size: 11px;
+            margin-top: 3px;
+            line-height: 1.5;
+        }
+
+        .item-price {
+            text-align: center;
+            font-weight: 800;
+            color: #0a1628;
+            font-size: 15px;
+            white-space: nowrap;
+        }
+
+        .free-badge {
+            background: linear-gradient(135deg, #059669, #10b981);
+            color: white;
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            display: inline-block;
+        }
+
+        /* Total */
+        .total-section {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 30px;
+        }
+
+        .total-box {
+            background: linear-gradient(135deg, #0a1628, #1a2744);
+            padding: 20px 35px;
+            border-radius: 12px;
+            text-align: center;
+            min-width: 250px;
+        }
+
+        .total-box .label {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 11px;
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+        }
+
+        .total-box .amount {
+            color: #60a5fa;
+            font-size: 28px;
+            font-weight: 900;
+        }
+
+        .total-box .sub {
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 10px;
+            margin-top: 3px;
+        }
+
+        /* Features */
+        .features-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border: 1px solid #f1f5f9;
+        }
+
+        .feature-check {
+            width: 20px;
+            height: 20px;
+            background: linear-gradient(135deg, #059669, #10b981);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 11px;
+            font-weight: 900;
+            flex-shrink: 0;
+        }
+
+        .feature-item span {
+            font-size: 12px;
+            color: #334155;
+            font-weight: 600;
+        }
+
+        /* Terms */
+        .terms-section {
+            background: #f8fafc;
+            padding: 20px 25px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .terms-section h3 {
+            font-size: 13px;
+            color: #0a1628;
+            margin-bottom: 10px;
+            font-weight: 800;
+        }
+
+        .terms-section ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .terms-section ul li {
+            font-size: 11px;
+            color: #64748b;
+            padding: 4px 0;
+            padding-right: 15px;
+            position: relative;
+            line-height: 1.6;
+        }
+
+        .terms-section ul li::before {
+            content: '•';
+            position: absolute;
+            right: 0;
+            color: #2563EB;
+            font-weight: bold;
+        }
+
+        /* Trial Banner */
+        .trial-banner {
+            background: linear-gradient(135deg, #2563EB, #1d4ed8);
+            padding: 18px 30px;
+            border-radius: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+
+        .trial-banner .text h3 {
+            color: white;
+            font-size: 16px;
+            font-weight: 800;
+        }
+
+        .trial-banner .text p {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 11px;
+            margin-top: 3px;
+        }
+
+        .trial-badge-big {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 10px 25px;
+            border-radius: 10px;
+            color: white;
+            font-weight: 800;
+            font-size: 14px;
+        }
+
+        /* Footer */
+        .quote-footer {
+            background: #0a1628;
+            padding: 25px 50px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+        }
+
+        .footer-contact {
+            display: flex;
+            gap: 30px;
+        }
+
+        .footer-contact div {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 10px;
+        }
+
+        .footer-contact div span {
+            color: #ffffff;
+            font-weight: 700;
+            display: block;
+            font-size: 12px;
+            margin-top: 2px;
+        }
+
+        .footer-logo {
+            color: #2563EB;
+            font-size: 22px;
+            font-weight: 900;
+            letter-spacing: 3px;
+        }
+
+        /* Signature */
+        .signature-section {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 80px;
+            gap: 40px;
+        }
+
+        .sig-box {
+            flex: 1;
+            text-align: center;
+            padding-top: 15px;
+        }
+
+        .sig-box .sig-label {
+            font-size: 12px;
+            color: #64748b;
+            font-weight: 600;
+            margin-bottom: 40px;
+        }
+
+        .sig-box .sig-line {
+            border-top: 2px solid #e2e8f0;
+            padding-top: 8px;
+            font-size: 10px;
+            color: #94a3b8;
+        }
+
+        /* Watermark */
+        .watermark {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-30deg);
+            font-size: 120px;
+            font-weight: 900;
+            color: rgba(37, 99, 235, 0.03);
+            letter-spacing: 20px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        @media print {
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+            }
+            body {
+                background: white;
+                padding: 0;
+                margin: 0;
+            }
+            .quote-page {
+                box-shadow: none;
+                width: 100%;
+                min-height: auto;
+            }
+            .no-print {
+                display: none !important;
+                visibility: hidden !important;
+            }
+        }
+
+        /* Print Button */
+        .print-btn {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: linear-gradient(135deg, #2563EB, #1d4ed8);
+            color: white;
+            border: none;
+            padding: 14px 30px;
+            border-radius: 12px;
+            font-family: 'Cairo', sans-serif;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(37, 99, 235, 0.4);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: transform 0.2s;
+        }
+
+        .print-btn:hover {
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body>
+
+    <button class="print-btn no-print" onclick="window.print()">🖨️ طباعة / حفظ PDF</button>
+
+    <div class="quote-page">
+        <div class="watermark">DYR</div>
+
+        <!-- Header -->
+        <div class="quote-header">
+            <div class="header-content">
+                <div class="logo-section">
+                    <div class="logo-icon">DYR</div>
+                    <div class="logo-text">
+                        <h1>DYR</h1>
+                        <p>Real Estate Management System</p>
+                    </div>
+                </div>
+                <div class="quote-badge">
+                    <h2>عرض سعر</h2>
+                    <p>PRICE QUOTATION</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="accent-line"></div>
+
+        <!-- Quote Info -->
+        <div class="quote-info">
+            <div class="info-block">
+                <h4>رقم العرض</h4>
+                <p>DYR-QT-2026-001</p>
+            </div>
+            <div class="info-block">
+                <h4>التاريخ</h4>
+                <p>8 أبريل 2026</p>
+            </div>
+            <div class="info-block">
+                <h4>صلاحية العرض</h4>
+                <p>30 يوم</p>
+            </div>
+            <div class="info-block">
+                <h4>العميل</h4>
+                <p>شركة الزهراء للتطوير العقاري</p>
+            </div>
+        </div>
+
+        <!-- Body -->
+        <div class="quote-body">
+
+            <!-- Pricing Table -->
+            <div class="section-title">
+                تفاصيل الأسعار
+                <span class="line"></span>
+            </div>
+
+            <table class="pricing-table">
+                <thead>
+                    <tr>
+                        <th style="width: 5%">#</th>
+                        <th style="width: 60%">البند</th>
+                        <th style="width: 15%">النوع</th>
+                        <th style="width: 20%">التكلفة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="text-align: center; font-weight: 700; color: #2563EB;">1</td>
+                        <td>
+                            <div class="item-name">ترخيص نظام DYR — رخصة كاملة</div>
+                            <div class="item-desc">ترخيص مدى الحياة يشمل جميع الموديولات: المباني، الوحدات، العملاء، العروض، العقود، الأقساط، الشيكات، التقارير، فريق المبيعات — يشمل مستخدمين (2)</div>
+                        </td>
+                        <td style="color: #64748b; font-size: 12px;">دفعة واحدة</td>
+                        <td class="item-price">1,000$</td>
+                    </tr>
+                    <tr>
+                        <td style="text-align: center; font-weight: 700; color: #2563EB;">2</td>
+                        <td>
+                            <div class="item-name">التركيب والتفعيل والإعداد الأولي</div>
+                            <div class="item-desc">تركيب النظام على سيرفر الشركة، إعداد قاعدة البيانات، تهيئة الشبكة الداخلية، وتفعيل الترخيص</div>
+                        </td>
+                        <td style="color: #64748b; font-size: 12px;">مرة واحدة</td>
+                        <td class="item-price"><span class="free-badge">مجاناً</span></td>
+                    </tr>
+                    <tr>
+                        <td style="text-align: center; font-weight: 700; color: #2563EB;">3</td>
+                        <td>
+                            <div class="item-name">الدعم الفني والتحديثات</div>
+                            <div class="item-desc">دعم فني مباشر + تحديثات النظام + إصلاح الأخطاء — مجاناً لأول 3 أشهر من تاريخ التفعيل</div>
+                        </td>
+                        <td style="color: #64748b; font-size: 12px;">3 أشهر</td>
+                        <td class="item-price"><span class="free-badge">مجاناً</span></td>
+                    </tr>
+                    <tr>
+                        <td style="text-align: center; font-weight: 700; color: #2563EB;">4</td>
+                        <td>
+                            <div class="item-name">تجديد الدعم الفني السنوي</div>
+                            <div class="item-desc">تجديد خدمة الدعم الفني والتحديثات والصيانة بعد انتهاء فترة الـ3 أشهر المجانية</div>
+                        </td>
+                        <td style="color: #64748b; font-size: 12px;">سنوي (اختياري)</td>
+                        <td class="item-price">250$ <span style="font-size: 10px; color: #64748b; font-weight: 400;">/ سنوياً</span></td>
+                    </tr>
+                    <tr>
+                        <td style="text-align: center; font-weight: 700; color: #2563EB;">5</td>
+                        <td>
+                            <div class="item-name">مستخدم إضافي</div>
+                            <div class="item-desc">إضافة مستخدم جديد للنظام بعد المستخدمين الأساسيين (2) المشمولين في الرخصة — دفعة واحدة لكل مستخدم</div>
+                        </td>
+                        <td style="color: #64748b; font-size: 12px;">دفعة واحدة</td>
+                        <td class="item-price">100$ <span style="font-size: 10px; color: #64748b; font-weight: 400;">/ لكل مستخدم</span></td>
+                    </tr>
+                    <tr>
+                        <td style="text-align: center; font-weight: 700; color: #2563EB;">6</td>
+                        <td>
+                            <div class="item-name">إعادة التركيب أو النقل</div>
+                            <div class="item-desc">في حالة نقل النظام لسيرفر جديد أو إعادة تركيبه بعد المرة الأولى</div>
+                        </td>
+                        <td style="color: #64748b; font-size: 12px;">عند الطلب</td>
+                        <td class="item-price">100$ <span style="font-size: 10px; color: #64748b; font-weight: 400;">/ للمرة</span></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- Total -->
+            <div class="total-section">
+                <div class="total-box">
+                    <div class="label">إجمالي التكلفة المبدئية</div>
+                    <div class="amount">1,000$</div>
+                    <div class="sub">أو ما يعادله بالجنيه المصري • شامل التركيب والدعم 3 أشهر</div>
+                </div>
+            </div>
+
+            <!-- Trial Banner -->
+            <div class="trial-banner">
+                <div class="text">
+                    <h3>🎁 فترة تجريبية مجانية</h3>
+                    <p>جرّب النظام كامل بدون أي التزام أو دفع مسبق</p>
+                </div>
+                <div class="trial-badge-big">10 — 30 يوم</div>
+            </div>
+
+            <!-- Features -->
+            <div class="section-title">
+                مميزات النظام
+                <span class="line"></span>
+            </div>
+
+            <div class="features-grid">
+                <div class="feature-item">
+                    <div class="feature-check">✓</div>
+                    <span>إدارة مباني ووحدات بلا حدود</span>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-check">✓</div>
+                    <span>عقود وعروض رقمية كاملة</span>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-check">✓</div>
+                    <span>متابعة أقساط وشيكات وتحصيلات</span>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-check">✓</div>
+                    <span>تقارير PDF و Excel احترافية</span>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-check">✓</div>
+                    <span>إدارة عملاء وضامنين وشركاء شراء</span>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-check">✓</div>
+                    <span>إدارة فريق المبيعات والعمولات</span>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-check">✓</div>
+                    <span>يعمل على الشبكة الداخلية بدون إنترنت</span>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-check">✓</div>
+                    <span>مستخدمين (2) + إمكانية إضافة المزيد</span>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-check">✓</div>
+                    <span>بياناتك على سيرفرك — أمان كامل</span>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-check">✓</div>
+                    <span>داشبورد شامل ولوحة تحكم ذكية</span>
+                </div>
+            </div>
+
+            <!-- Terms -->
+            <div class="terms-section">
+                <h3>📋 الشروط والأحكام</h3>
+                <ul>
+                    <li>الرخصة مدى الحياة ولا تحتاج تجديد — تُدفع مرة واحدة فقط</li>
+                    <li>صلاحية هذا العرض 30 يوم من تاريخ الإصدار</li>
+                    <li>جميع الأسعار بالدولار الأمريكي أو ما يعادله بالجنيه المصري حسب سعر الصرف وقت الدفع</li>
+                    <li>خدمة الدعم الفني السنوي اختيارية ويمكن تجديدها في أي وقت</li>
+                    <li>الفترة التجريبية لا تتطلب أي دفع مسبق أو التزام</li>
+                    <li>يشمل التركيب الأول تهيئة النظام والتدريب الأولي على الاستخدام</li>
+                </ul>
+            </div>
+
+            <!-- Signature -->
+            <div class="signature-section">
+                <div class="sig-box">
+                    <div class="sig-label">توقيع وختم المورد</div>
+                    <div class="sig-line">DYR Systems</div>
+                </div>
+                <div class="sig-box">
+                    <div class="sig-label">توقيع وختم العميل</div>
+                    <div class="sig-line">____________________</div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Footer -->
+        <div class="quote-footer">
+            <div class="footer-contact">
+                <div>
+                    الهاتف
+                    <span>00201008515995</span>
+                </div>
+                <div>
+                    البريد الإلكتروني
+                    <span>invoker89719@Gmail.com</span>
+                </div>
+                <div>
+                    فيسبوك
+                    <span>facebook.com/DYRFB</span>
+                </div>
+            </div>
+            <div class="footer-logo">DYR</div>
+        </div>
+
+    </div>
+
+</body>
+</html>

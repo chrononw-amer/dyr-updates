@@ -1,0 +1,127 @@
+{
+  "name": "dyr",
+  "productName": "DYR",
+  "private": true,
+  "version": "1.7.8",
+  "type": "module",
+  "main": "electron/main.js",
+  "author": "DYR",
+  "description": "Real Estate Management Application",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "server": "node server/index.js",
+    "dev:all": "concurrently \"npm run server\" \"npm run dev\"",
+    "electron": "electron electron/main.js",
+    "dev:electron": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && npm run electron\"",
+    "start": "npm run dev:electron",
+    "mobile:sync": "npm run build && npx cap sync",
+    "mobile:android": "npm run build && npx cap sync android && npx cap open android",
+    "mobile:ios": "npm run build && npx cap sync ios && npx cap open ios",
+    "version:push": "echo 'Run manual Supabase SQL: update app_config set latest_version = \"1.5.6\" where id = \"main\";'",
+    "dist": "npm run build && electron-builder --win",
+    "dist:dir": "npm run build && electron-builder --win --dir"
+  },
+  "dependencies": {
+    "@capacitor/app": "^8.0.1",
+    "@capacitor/core": "^8.0.2",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/share": "^8.0.1",
+    "@ionic/react": "^8.7.17",
+    "@ionic/react-router": "^8.7.17",
+    "@supabase/supabase-js": "^2.94.0",
+    "archiver": "^7.0.1",
+    "cors": "^2.8.6",
+    "electron-log": "^5.4.3",
+    "electron-updater": "^6.7.3",
+    "express": "^5.2.1",
+    "html2canvas": "^1.4.1",
+    "ionicons": "^8.0.13",
+    "jspdf": "^4.1.0",
+    "jspdf-autotable": "^5.0.7",
+    "lucide-react": "^0.563.0",
+    "pdfjs-dist": "^5.4.624",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.0.2",
+    "@capacitor/cli": "^8.0.2",
+    "@capacitor/ios": "^8.0.2",
+    "@eslint/js": "^9.39.1",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "body-parser": "^2.2.2",
+    "concurrently": "^9.2.1",
+    "electron": "^34.5.8",
+    "electron-builder": "^26.7.0",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "javascript-obfuscator": "^5.4.1",
+    "png-to-ico": "^3.0.1",
+    "rcedit": "^5.0.2",
+    "rollup-plugin-obfuscator": "^1.1.0",
+    "sharp": "^0.34.5",
+    "vite": "^7.2.4",
+    "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "com.dyr.app",
+    "asar": true,
+    "compression": "maximum",
+    "publish": {
+      "provider": "github",
+      "owner": "chrononw-amer",
+      "repo": "dyr-updates",
+      "private": true
+    },
+    "productName": "DYR",
+    "artifactName": "DYR-${version}-Setup.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "server/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "server",
+        "to": "server",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "electron/assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "DYR",
+      "include": "build/installer.nsh",
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

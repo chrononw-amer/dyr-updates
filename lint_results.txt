@@ -1,0 +1,996 @@
+
+> native-real-estate-app@0.0.0 lint
+> eslint .
+
+
+D:\AGENT1\android\app\src\main\assets\public\assets\index-RVp_DjW0.js
+    1:5445    error  'process' is not defined                                                                         no-undef
+    1:5471    error  'process' is not defined                                                                         no-undef
+    1:10125   error  'setImmediate' is not defined                                                                    no-undef
+    1:10986   error  Unreachable code                                                                                 no-unreachable
+    1:16298   error  '__REACT_DEVTOOLS_GLOBAL_HOOK__' is not defined                                                  no-undef
+    1:16355   error  '__REACT_DEVTOOLS_GLOBAL_HOOK__' is not defined                                                  no-undef
+    1:19722   error  Empty block statement                                                                            no-empty
+    6:206     error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:548     error  Empty block statement                                                                            no-empty
+    8:4247    error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:4345    error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:4427    error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:5247    error  Unexpected combined character in character class                                                 no-misleading-character-class
+    8:6396    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:8622    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:10740   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:10770   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:10889   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:10950   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:13913   error  Unexpected control character(s) in regular expression: \x00, \x1f                                no-control-regex
+    8:15953   error  Expected to return a value in method 'get'                                                       getter-return
+    8:16643   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:16985   error  Invalid typeof comparison value                                                                  valid-typeof
+    8:17159   error  Invalid typeof comparison value                                                                  valid-typeof
+    8:19024   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:25343   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:26653   error  'process' is not defined                                                                         no-undef
+    8:26679   error  'process' is not defined                                                                         no-undef
+    8:46422   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:46917   error  Unexpected constant condition                                                                    no-constant-condition
+    8:60029   error  Empty block statement                                                                            no-empty
+    8:65583   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:70489   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:73405   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:74536   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:76229   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:82843   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:87827   error  Unnecessary escape character: \/                                                                 no-useless-escape
+    8:98625   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:99577   error  Empty block statement                                                                            no-empty
+    8:99856   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:103050  error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:105436  error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:107266  error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:107943  error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:113738  error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:114072  error  Unexpected constant condition                                                                    no-constant-condition
+    8:116718  error  Unexpected constant condition                                                                    no-constant-condition
+    8:117343  error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:117668  error  Unexpected constant condition                                                                    no-constant-condition
+    8:118068  error  Expected a 'break' statement before 'default'                                                    no-fallthrough
+    8:120614  error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:121444  error  Empty block statement                                                                            no-empty
+    8:122199  error  Empty block statement                                                                            no-empty
+    8:123677  error  's' is defined but never used                                                                    no-unused-vars
+    8:126068  error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:129844  error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:130037  error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:131314  error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:132978  error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:134547  error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+    9:476     error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    9:5078    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:5649    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:5989    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:6396    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:6512    error  Expected a 'break' statement before 'default'                                                    no-fallthrough
+    9:6674    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:6934    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:7407    error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    9:7547    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:7730    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:7815    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:8081    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:8183    error  Expected a 'break' statement before 'default'                                                    no-fallthrough
+    9:8193    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:8279    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:8689    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:8764    error  Expected a 'break' statement before 'default'                                                    no-fallthrough
+    9:8774    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:8842    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:8961    error  Expected a 'break' statement before 'default'                                                    no-fallthrough
+    9:9142    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:9173    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:9297    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:9575    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:9608    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:9710    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10056   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10089   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10165   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10390   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10426   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10502   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10611   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10644   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10718   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:18781   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    9:19856   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    9:22389   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    9:36081   error  '__REACT_DEVTOOLS_GLOBAL_HOOK__' is not defined                                                  no-undef
+    9:36180   error  Empty block statement                                                                            no-empty
+    9:37324   error  '__REACT_DEVTOOLS_GLOBAL_HOOK__' is not defined                                                  no-undef
+    9:37381   error  '__REACT_DEVTOOLS_GLOBAL_HOOK__' is not defined                                                  no-undef
+    9:41427   error  Expected to return a value in method 'get'                                                       getter-return
+    9:41447   error  Empty block statement                                                                            no-empty
+    9:41581   error  Empty block statement                                                                            no-empty
+    9:42897   error  Unexpected constant condition                                                                    no-constant-condition
+    9:42898   error  Unexpected constant binary expression. Compares constantly with the right-hand side of the `!=`  no-constant-binary-expression
+    9:43684   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   13:379     error  'e' is assigned a value but never used                                                           no-unused-vars
+   13:3215    error  'n' is defined but never used                                                                    no-unused-vars
+   13:3546    error  'l' is defined but never used                                                                    no-unused-vars
+   13:4425    error  Empty block statement                                                                            no-empty
+   13:4460    error  Unnecessary escape character: \:                                                                 no-useless-escape
+   13:4833    error  'r' is defined but never used                                                                    no-unused-vars
+   13:8348    error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   13:12890   error  'wk' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u               no-unused-vars
+   13:13648   error  't' is defined but never used                                                                    no-unused-vars
+   13:14552   error  'n' is defined but never used                                                                    no-unused-vars
+   13:15593   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   13:15807   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   13:16269   error  'u' is defined but never used                                                                    no-unused-vars
+   13:16428   error  'r' is defined but never used                                                                    no-unused-vars
+   13:16926   error  't' is defined but never used                                                                    no-unused-vars
+   13:16928   error  'e' is defined but never used                                                                    no-unused-vars
+   13:17249   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   13:18702   error  'r' is defined but never used                                                                    no-unused-vars
+   13:18888   error  'r' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                         no-unused-vars
+   13:23123   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   13:23358   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   13:27248   error  'e' is defined but never used                                                                    no-unused-vars
+   13:27434   error  '__zone_symbol__requestAnimationFrame' is not defined                                            no-undef
+   13:27990   error  Unexpected 'debugger' statement                                                                  no-debugger
+   13:29244   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   13:29337   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   13:29446   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   13:36286   error  Expected to return a value in method 'get'                                                       getter-return
+   13:52130   error  Unnecessary try/catch wrapper                                                                    no-useless-catch
+   13:60903   error  Redundant double negation                                                                        no-extra-boolean-cast
+   13:60904   error  Redundant double negation                                                                        no-extra-boolean-cast
+   15:10094   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:11702   error  Empty block statement                                                                            no-empty
+   15:11831   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:11904   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:11974   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:12040   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:12406   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:12480   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:12581   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:268958  error  Redundant double negation                                                                        no-extra-boolean-cast
+   15:281858  error  Redundant double negation                                                                        no-extra-boolean-cast
+   15:357668  error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:357784  error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:357898  error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:360811  error  Expected getter 'labelText' to always return a value                                             getter-return
+   15:433293  error  Empty block statement                                                                            no-empty
+   15:433332  error  'e' is defined but never used                                                                    no-unused-vars
+   15:434339  error  't' is defined but never used                                                                    no-unused-vars
+   15:434406  error  Unexpected constant condition                                                                    no-constant-condition
+   15:434407  error  Unexpected constant binary expression. Compares constantly with the right-hand side of the `!=`  no-constant-binary-expression
+   15:434475  error  'e' is assigned a value but never used                                                           no-unused-vars
+   15:434629  error  'n' is defined but never used                                                                    no-unused-vars
+   15:435702  error  'e' is defined but never used                                                                    no-unused-vars
+   15:436501  error  'n' is defined but never used                                                                    no-unused-vars
+   15:436647  error  'l' is defined but never used                                                                    no-unused-vars
+   15:437520  error  Empty block statement                                                                            no-empty
+   15:437555  error  Unnecessary escape character: \:                                                                 no-useless-escape
+   15:437928  error  'r' is defined but never used                                                                    no-unused-vars
+   15:442514  error  't' is defined but never used                                                                    no-unused-vars
+   15:443148  error  'n' is defined but never used                                                                    no-unused-vars
+   15:444017  error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   15:444055  error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   15:444526  error  'u' is defined but never used                                                                    no-unused-vars
+   15:444685  error  'r' is defined but never used                                                                    no-unused-vars
+   15:445069  error  't' is defined but never used                                                                    no-unused-vars
+   15:445071  error  'e' is defined but never used                                                                    no-unused-vars
+   15:445273  error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   15:445415  error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   15:450959  error  Redundant double negation                                                                        no-extra-boolean-cast
+   15:450960  error  Redundant double negation                                                                        no-extra-boolean-cast
+   15:457833  error  'f' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:457839  error  'p' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:459481  error  'o' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:459501  error  'c' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:459507  error  'u' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:461383  error  'c' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:461399  error  'u' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:461625  error  'l' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:461645  error  'u' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:461651  error  'f' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:465305  error  'r' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:465320  error  'i' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:466474  error  't' is defined but never used                                                                    no-unused-vars
+   15:470336  error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   15:471597  error  'e' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:471945  error  'r' is defined but never used                                                                    no-unused-vars
+   15:477009  error  'e4' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                        no-unused-vars
+   15:477690  error  '$Y' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                        no-unused-vars
+   15:478380  error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   15:488660  error  'r' is already defined                                                                           no-redeclare
+   15:490190  error  'e' is defined but never used                                                                    no-unused-vars
+   18:8382    error  'Zd' is a function                                                                               no-func-assign
+   18:10912   error  'x' is defined but never used                                                                    no-unused-vars
+   18:11610   error  'global' is not defined                                                                          no-undef
+   18:11664   error  'global' is not defined                                                                          no-undef
+   22:16007   error  Empty block statement                                                                            no-empty
+   22:18557   error  'r' is defined but never used                                                                    no-unused-vars
+   40:16302   error  Unnecessary escape character: \*                                                                 no-useless-escape
+   40:16379   error  'eu' is a function                                                                               no-func-assign
+   40:25830   error  'Buffer' is not defined                                                                          no-undef
+   41:2868    error  Empty block statement                                                                            no-empty
+   41:17927   error  '__magic__' is not defined                                                                       no-undef
+   41:17948   error  '__magic__' is not defined                                                                       no-undef
+   56:21894   error  'y' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   57:7289    error  Empty block statement                                                                            no-empty
+   57:7530    error  Empty block statement                                                                            no-empty
+   57:25128   error  'Deno' is not defined                                                                            no-undef
+   57:25157   error  'Deno' is not defined                                                                            no-undef
+   57:25387   error  'Deno' is not defined                                                                            no-undef
+   57:25416   error  'Deno' is not defined                                                                            no-undef
+   57:37241   error  'iu' is a function                                                                               no-func-assign
+   57:49555   error  Unnecessary escape character: \+                                                                 no-useless-escape
+   57:49557   error  Unnecessary escape character: \/                                                                 no-useless-escape
+   57:49559   error  Unnecessary escape character: \=                                                                 no-useless-escape
+   57:49926   error  'process' is not defined                                                                         no-undef
+   57:49950   error  'process' is not defined                                                                         no-undef
+   57:50020   error  'Buffer' is not defined                                                                          no-undef
+   57:50042   error  'Buffer' is not defined                                                                          no-undef
+   57:50115   error  'Buffer' is not defined                                                                          no-undef
+   57:50131   error  'Buffer' is not defined                                                                          no-undef
+   57:50142   error  'Buffer' is not defined                                                                          no-undef
+   57:50159   error  'Buffer' is not defined                                                                          no-undef
+   57:50216   error  'Buffer' is not defined                                                                          no-undef
+   57:50229   error  'Buffer' is not defined                                                                          no-undef
+   57:50249   error  'Buffer' is not defined                                                                          no-undef
+   57:50337   error  'Buffer' is not defined                                                                          no-undef
+   57:50356   error  'Buffer' is not defined                                                                          no-undef
+   57:50382   error  'Buffer' is not defined                                                                          no-undef
+   57:51215   error  'Buffer' is not defined                                                                          no-undef
+   57:51254   error  'Buffer' is not defined                                                                          no-undef
+   57:52140   error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+   57:52153   error  Unexpected control character(s) in regular expression: \x01, \x06                                no-control-regex
+   57:57306   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   57:59806   error  Unnecessary escape character: \-                                                                 no-useless-escape
+   57:61345   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:61439   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:61493   error  Unnecessary escape character: \.                                                                 no-useless-escape
+   57:61856   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:61911   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:62050   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:62113   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:62413   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:62708   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:62946   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:63045   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:63259   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:64707   error  Unnecessary escape character: \-                                                                 no-useless-escape
+   57:65331   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:65425   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:65468   error  Unnecessary escape character: \.                                                                 no-useless-escape
+   57:65824   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:65876   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:65969   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:66032   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:66332   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:66627   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:66865   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:66961   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:67174   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:68269   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   57:69774   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   57:69840   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   57:70765   error  Unnecessary escape character: \[                                                                 no-useless-escape
+   57:70928   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   57:71831   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   57:79778   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:81342   error  Expected a 'break' statement before 'default'                                                    no-fallthrough
+   57:85858   error  'Buffer' is not defined                                                                          no-undef
+   57:90536   error  'Buffer' is not defined                                                                          no-undef
+   57:90802   error  'Buffer' is not defined                                                                          no-undef
+   57:92362   error  'Buffer' is not defined                                                                          no-undef
+   57:92389   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   57:102051  error  Unnecessary escape character: \.                                                                 no-useless-escape
+   57:102100  error  Unnecessary escape character: \.                                                                 no-useless-escape
+   57:102108  error  Unnecessary escape character: \.                                                                 no-useless-escape
+   59:34      error  Unexpected control character(s) in regular expression: \x00, \x08, \x0b, \x0c, \x0e, \x1f        no-control-regex
+   64:720     error  'Buffer' is not defined                                                                          no-undef
+   65:910     error  Unexpected control character(s) in regular expression: \x00, \x08, \x0b, \x0c, \x0e, \x1f        no-control-regex
+   65:1127    error  'Buffer' is not defined                                                                          no-undef
+   67:1301    error  'Deno' is not defined                                                                            no-undef
+   67:1382    error  'IE_SaveFile' is not defined                                                                     no-undef
+   67:1584    error  'saveAs' is not defined                                                                          no-undef
+   67:1745    error  'chrome' is not defined                                                                          no-undef
+   67:1890    error  'chrome' is not defined                                                                          no-undef
+   67:2496    error  'Deno' is not defined                                                                            no-undef
+   67:3344    error  'e' is defined but never used                                                                    no-unused-vars
+   67:3766    error  Unnecessary escape character: \.                                                                 no-useless-escape
+   67:3778    error  Unnecessary escape character: \.                                                                 no-useless-escape
+   67:3790    error  Unnecessary escape character: \.                                                                 no-useless-escape
+   67:3803    error  Unnecessary escape character: \.                                                                 no-useless-escape
+   67:3815    error  Unnecessary escape character: \.                                                                 no-useless-escape
+   67:3827    error  Unnecessary escape character: \.                                                                 no-useless-escape
+   67:4084    error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   67:4098    error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   67:4877    error  'Buffer' is not defined                                                                          no-undef
+   67:5632    error  Empty block statement                                                                            no-empty
+   67:6880    error  Unnecessary escape character: \/                                                                 no-useless-escape
+   67:7777    error  Unnecessary escape character: \/                                                                 no-useless-escape
+   67:7864    error  Unnecessary escape character: \/                                                                 no-useless-escape
+   67:8273    error  'n' is defined but never used                                                                    no-unused-vars
+   67:8423    error  Unnecessary escape character: \/                                                                 no-useless-escape
+   68:15      error  Unnecessary escape character: \/                                                                 no-useless-escape
+   68:85      error  Unnecessary escape character: \/                                                                 no-useless-escape
+   68:87      error  Unnecessary escape character: \?                                                                 no-useless-escape
+   68:119     error  Unnecessary escape character: \/                                                                 no-useless-escape
+   68:166     error  Unnecessary escape character: \/                                                                 no-useless-escape
+   68:168     error  Unnecessary escape character: \?                                                                 no-useless-escape
+   68:256     error  'n' is defined but never used                                                                    no-unused-vars
+   68:1481    error  Unexpected control character(s) in regular expression: \x00, \x08, \x0b, \x1f                    no-control-regex
+   68:1732    error  Unexpected control character(s) in regular expression: \x00, \x1f                                no-control-regex
+   69:978     error  'e' is defined but never used                                                                    no-unused-vars
+   69:1312    error  'Buffer' is not defined                                                                          no-undef
+   69:1545    error  Unnecessary escape character: \/                                                                 no-useless-escape
+   69:1562    error  Unnecessary escape character: \/                                                                 no-useless-escape
+   69:1575    error  Unnecessary escape character: \/                                                                 no-useless-escape
+   69:3665    error  'Buffer' is not defined                                                                          no-undef
+   69:3690    error  'Buffer' is not defined                                                                          no-undef
+   69:3732    error  'Buffer' is not defined                                                                          no-undef
+   69:3917    error  'Buffer' is not defined                                                                          no-undef
+   69:4127    error  'Buffer' is not defined                                                                          no-undef
+   69:4313    error  'Buffer' is not defined                                                                          no-undef
+   69:4870    error  'Buffer' is not defined                                                                          no-undef
+   69:4995    error  'Buffer' is not defined                                                                          no-undef
+   69:5120    error  'Buffer' is not defined                                                                          no-undef
+   69:5243    error  'Buffer' is not defined                                                                          no-undef
+   69:5362    error  'Buffer' is not defined                                                                          no-undef
+   69:5481    error  'Buffer' is not defined                                                                          no-undef
+   69:5549    error  'Buffer' is not defined                                                                          no-undef
+   69:6057    error  'Buffer' is not defined                                                                          no-undef
+   69:7754    error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   69:8180    error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+   69:8853    error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   69:12660   error  Empty block statement                                                                            no-empty
+   69:34040   error  'o' is defined but never used                                                                    no-unused-vars
+   69:34486   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   79:8309    error  'e' is defined but never used                                                                    no-unused-vars
+   79:8311    error  'n' is defined but never used                                                                    no-unused-vars
+   79:11320   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   79:11885   error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+   79:11946   error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+   79:14186   error  Empty block statement                                                                            no-empty
+   79:17229   error  'e' is defined but never used                                                                    no-unused-vars
+   79:19365   error  'e' is defined but never used                                                                    no-unused-vars
+   79:22956   error  'e' is defined but never used                                                                    no-unused-vars
+   79:28137   error  't' is defined but never used                                                                    no-unused-vars
+   79:30671   error  'e' is defined but never used                                                                    no-unused-vars
+   79:31443   error  'l' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   79:36185   error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+   79:37762   error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+   79:38154   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   79:38232   error  Expected a 'break' statement before 'default'                                                    no-fallthrough
+   79:42495   error  'Buffer' is not defined                                                                          no-undef
+   79:42808   error  Unexpected control character(s) in regular expression: \x1b                                      no-control-regex
+   79:42927   error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+   79:45963   error  'x' is defined but never used                                                                    no-unused-vars
+   80:567     error  'Buffer' is not defined                                                                          no-undef
+   85:275     error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   92:1596    error  'Buffer' is not defined                                                                          no-undef
+   93:1114    error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   93:1804    error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   93:7076    error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   93:8489    error  'z' is defined but never used                                                                    no-unused-vars
+   93:8802    error  'z' is defined but never used                                                                    no-unused-vars
+   93:9615    error  'z' is defined but never used                                                                    no-unused-vars
+   93:9682    error  'z' is defined but never used                                                                    no-unused-vars
+   93:13683   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   93:13853   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   93:14016   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   93:14272   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   93:14351   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   93:14430   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   93:23617   error  'Buffer' is not defined                                                                          no-undef
+   93:23999   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   93:34464   error  Unnecessary escape character: \[                                                                 no-useless-escape
+   93:35640   error  'e' is defined but never used                                                                    no-unused-vars
+   93:35840   error  'e' is defined but never used                                                                    no-unused-vars
+   93:35842   error  'n' is defined but never used                                                                    no-unused-vars
+   93:52978   error  'e' is defined but never used                                                                    no-unused-vars
+   93:53583   error  'e' is defined but never used                                                                    no-unused-vars
+  111:456     error  'e' is defined but never used                                                                    no-unused-vars
+  111:458     error  'n' is defined but never used                                                                    no-unused-vars
+  119:376     error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:1375    error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:3001    error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:3020    error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+  119:3191    error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:3196    error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:4108    error  Unnecessary escape character: \(                                                                 no-useless-escape
+  119:4647    error  'e' is defined but never used                                                                    no-unused-vars
+  119:10022   error  'e' is defined but never used                                                                    no-unused-vars
+  119:10024   error  'n' is defined but never used                                                                    no-unused-vars
+  119:19152   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+  119:19196   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+  119:39570   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:39714   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:39752   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:39900   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:39968   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:41595   error  Empty block statement                                                                            no-empty
+  119:45491   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  120:1603    error  'n' is defined but never used                                                                    no-unused-vars
+  120:1605    error  'r' is defined but never used                                                                    no-unused-vars
+  120:5346    error  'e' is defined but never used                                                                    no-unused-vars
+  120:17285   error  Empty block statement                                                                            no-empty
+  120:18829   error  'e' is defined but never used                                                                    no-unused-vars
+  120:21277   error  'e' is defined but never used                                                                    no-unused-vars
+  120:26490   error  'e' is defined but never used                                                                    no-unused-vars
+  120:29959   error  'e' is defined but never used                                                                    no-unused-vars
+  120:30270   error  'l' is defined but never used                                                                    no-unused-vars
+  120:30272   error  'c' is defined but never used                                                                    no-unused-vars
+  120:30347   error  'n' is defined but never used                                                                    no-unused-vars
+  120:30349   error  'r' is defined but never used                                                                    no-unused-vars
+  120:30351   error  'i' is defined but never used                                                                    no-unused-vars
+  120:30353   error  'o' is defined but never used                                                                    no-unused-vars
+  120:30355   error  'l' is defined but never used                                                                    no-unused-vars
+  120:30357   error  'c' is defined but never used                                                                    no-unused-vars
+  120:30414   error  'n' is defined but never used                                                                    no-unused-vars
+  120:30416   error  'r' is defined but never used                                                                    no-unused-vars
+  120:30418   error  'i' is defined but never used                                                                    no-unused-vars
+  120:30420   error  'o' is defined but never used                                                                    no-unused-vars
+  120:30422   error  'l' is defined but never used                                                                    no-unused-vars
+  120:30424   error  'c' is defined but never used                                                                    no-unused-vars
+  120:30710   error  'n' is defined but never used                                                                    no-unused-vars
+  120:30904   error  'n' is defined but never used                                                                    no-unused-vars
+  120:31146   error  'n' is defined but never used                                                                    no-unused-vars
+  120:31366   error  'e' is defined but never used                                                                    no-unused-vars
+  120:33541   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+  122:1219    error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+  122:34590   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+  122:34631   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+  122:47230   error  'r' is defined but never used                                                                    no-unused-vars
+  123:624     error  Unnecessary escape character: \[                                                                 no-useless-escape
+  123:647     error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+  124:198     error  Empty block statement                                                                            no-empty
+  124:2349    error  Unnecessary escape character: \/                                                                 no-useless-escape
+  158:14325   error  'be' is defined but never used                                                                   no-unused-vars
+  158:20696   error  Empty block statement                                                                            no-empty
+  158:22032   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  158:22226   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  158:23004   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  158:24147   error  Empty block statement                                                                            no-empty
+  158:24429   error  'decrypt_agile' is not defined                                                                   no-undef
+  158:24520   error  'decrypt_std76' is not defined                                                                   no-undef
+  158:25890   error  'b' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+  158:28289   error  'x' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+  158:30449   error  'Buffer' is not defined                                                                          no-undef
+  158:31133   error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+  158:31615   error  'Buffer' is not defined                                                                          no-undef
+  158:34223   error  'encrypt_agile' is not defined                                                                   no-undef
+  158:36482   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+  158:36513   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+  158:36596   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+  158:37071   error  'n' is defined but never used                                                                    no-unused-vars
+  160:13100   error  'global' is not defined                                                                          no-undef
+  160:20812   error  'be' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u               no-unused-vars
+  160:21597   error  'ha' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u               no-unused-vars
+
+D:\AGENT1\android\app\src\main\assets\public\assets\ios.transition-DMSlGwrG.js
+  1:4859  error  Unnecessary try/catch wrapper  no-useless-catch
+
+D:\AGENT1\electron\main.js
+   1:41  error  'require' is not defined    no-undef
+   2:14  error  'require' is not defined    no-undef
+   3:12  error  'require' is not defined    no-undef
+   7:1   error  'process' is not defined    no-undef
+  20:26  error  '__dirname' is not defined  no-undef
+  34:7   error  'process' is not defined    no-undef
+  39:28  error  '__dirname' is not defined  no-undef
+  52:7   error  'process' is not defined    no-undef
+
+D:\AGENT1\electron\preload.js
+  1:40  error  'require' is not defined  no-undef
+
+D:\AGENT1\ios\App\App\public\assets\index-RVp_DjW0.js
+    1:5445    error  'process' is not defined                                                                         no-undef
+    1:5471    error  'process' is not defined                                                                         no-undef
+    1:10125   error  'setImmediate' is not defined                                                                    no-undef
+    1:10986   error  Unreachable code                                                                                 no-unreachable
+    1:16298   error  '__REACT_DEVTOOLS_GLOBAL_HOOK__' is not defined                                                  no-undef
+    1:16355   error  '__REACT_DEVTOOLS_GLOBAL_HOOK__' is not defined                                                  no-undef
+    1:19722   error  Empty block statement                                                                            no-empty
+    6:206     error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:548     error  Empty block statement                                                                            no-empty
+    8:4247    error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:4345    error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:4427    error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:5247    error  Unexpected combined character in character class                                                 no-misleading-character-class
+    8:6396    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:8622    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:10740   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:10770   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:10889   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:10950   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:13913   error  Unexpected control character(s) in regular expression: \x00, \x1f                                no-control-regex
+    8:15953   error  Expected to return a value in method 'get'                                                       getter-return
+    8:16643   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:16985   error  Invalid typeof comparison value                                                                  valid-typeof
+    8:17159   error  Invalid typeof comparison value                                                                  valid-typeof
+    8:19024   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:25343   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:26653   error  'process' is not defined                                                                         no-undef
+    8:26679   error  'process' is not defined                                                                         no-undef
+    8:46422   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:46917   error  Unexpected constant condition                                                                    no-constant-condition
+    8:60029   error  Empty block statement                                                                            no-empty
+    8:65583   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:70489   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:73405   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:74536   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:76229   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:82843   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:87827   error  Unnecessary escape character: \/                                                                 no-useless-escape
+    8:98625   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:99577   error  Empty block statement                                                                            no-empty
+    8:99856   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:103050  error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:105436  error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    8:107266  error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:107943  error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:113738  error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:114072  error  Unexpected constant condition                                                                    no-constant-condition
+    8:116718  error  Unexpected constant condition                                                                    no-constant-condition
+    8:117343  error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:117668  error  Unexpected constant condition                                                                    no-constant-condition
+    8:118068  error  Expected a 'break' statement before 'default'                                                    no-fallthrough
+    8:120614  error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:121444  error  Empty block statement                                                                            no-empty
+    8:122199  error  Empty block statement                                                                            no-empty
+    8:123677  error  's' is defined but never used                                                                    no-unused-vars
+    8:126068  error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:129844  error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:130037  error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:131314  error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    8:132978  error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    8:134547  error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+    9:476     error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    9:5078    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:5649    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:5989    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:6396    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:6512    error  Expected a 'break' statement before 'default'                                                    no-fallthrough
+    9:6674    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:6934    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:7407    error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+    9:7547    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:7730    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:7815    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:8081    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:8183    error  Expected a 'break' statement before 'default'                                                    no-fallthrough
+    9:8193    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:8279    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:8689    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:8764    error  Expected a 'break' statement before 'default'                                                    no-fallthrough
+    9:8774    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:8842    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:8961    error  Expected a 'break' statement before 'default'                                                    no-fallthrough
+    9:9142    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:9173    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:9297    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:9575    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:9608    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:9710    error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10056   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10089   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10165   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10390   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10426   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10502   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10611   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10644   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:10718   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+    9:18781   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    9:19856   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    9:22389   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+    9:36081   error  '__REACT_DEVTOOLS_GLOBAL_HOOK__' is not defined                                                  no-undef
+    9:36180   error  Empty block statement                                                                            no-empty
+    9:37324   error  '__REACT_DEVTOOLS_GLOBAL_HOOK__' is not defined                                                  no-undef
+    9:37381   error  '__REACT_DEVTOOLS_GLOBAL_HOOK__' is not defined                                                  no-undef
+    9:41427   error  Expected to return a value in method 'get'                                                       getter-return
+    9:41447   error  Empty block statement                                                                            no-empty
+    9:41581   error  Empty block statement                                                                            no-empty
+    9:42897   error  Unexpected constant condition                                                                    no-constant-condition
+    9:42898   error  Unexpected constant binary expression. Compares constantly with the right-hand side of the `!=`  no-constant-binary-expression
+    9:43684   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   13:379     error  'e' is assigned a value but never used                                                           no-unused-vars
+   13:3215    error  'n' is defined but never used                                                                    no-unused-vars
+   13:3546    error  'l' is defined but never used                                                                    no-unused-vars
+   13:4425    error  Empty block statement                                                                            no-empty
+   13:4460    error  Unnecessary escape character: \:                                                                 no-useless-escape
+   13:4833    error  'r' is defined but never used                                                                    no-unused-vars
+   13:8348    error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   13:12890   error  'wk' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u               no-unused-vars
+   13:13648   error  't' is defined but never used                                                                    no-unused-vars
+   13:14552   error  'n' is defined but never used                                                                    no-unused-vars
+   13:15593   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   13:15807   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   13:16269   error  'u' is defined but never used                                                                    no-unused-vars
+   13:16428   error  'r' is defined but never used                                                                    no-unused-vars
+   13:16926   error  't' is defined but never used                                                                    no-unused-vars
+   13:16928   error  'e' is defined but never used                                                                    no-unused-vars
+   13:17249   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   13:18702   error  'r' is defined but never used                                                                    no-unused-vars
+   13:18888   error  'r' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                         no-unused-vars
+   13:23123   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   13:23358   error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   13:27248   error  'e' is defined but never used                                                                    no-unused-vars
+   13:27434   error  '__zone_symbol__requestAnimationFrame' is not defined                                            no-undef
+   13:27990   error  Unexpected 'debugger' statement                                                                  no-debugger
+   13:29244   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   13:29337   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   13:29446   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   13:36286   error  Expected to return a value in method 'get'                                                       getter-return
+   13:52130   error  Unnecessary try/catch wrapper                                                                    no-useless-catch
+   13:60903   error  Redundant double negation                                                                        no-extra-boolean-cast
+   13:60904   error  Redundant double negation                                                                        no-extra-boolean-cast
+   15:10094   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:11702   error  Empty block statement                                                                            no-empty
+   15:11831   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:11904   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:11974   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:12040   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:12406   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:12480   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:12581   error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:268958  error  Redundant double negation                                                                        no-extra-boolean-cast
+   15:281858  error  Redundant double negation                                                                        no-extra-boolean-cast
+   15:357668  error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:357784  error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:357898  error  Unexpected lexical declaration in case block                                                     no-case-declarations
+   15:360811  error  Expected getter 'labelText' to always return a value                                             getter-return
+   15:433293  error  Empty block statement                                                                            no-empty
+   15:433332  error  'e' is defined but never used                                                                    no-unused-vars
+   15:434339  error  't' is defined but never used                                                                    no-unused-vars
+   15:434406  error  Unexpected constant condition                                                                    no-constant-condition
+   15:434407  error  Unexpected constant binary expression. Compares constantly with the right-hand side of the `!=`  no-constant-binary-expression
+   15:434475  error  'e' is assigned a value but never used                                                           no-unused-vars
+   15:434629  error  'n' is defined but never used                                                                    no-unused-vars
+   15:435702  error  'e' is defined but never used                                                                    no-unused-vars
+   15:436501  error  'n' is defined but never used                                                                    no-unused-vars
+   15:436647  error  'l' is defined but never used                                                                    no-unused-vars
+   15:437520  error  Empty block statement                                                                            no-empty
+   15:437555  error  Unnecessary escape character: \:                                                                 no-useless-escape
+   15:437928  error  'r' is defined but never used                                                                    no-unused-vars
+   15:442514  error  't' is defined but never used                                                                    no-unused-vars
+   15:443148  error  'n' is defined but never used                                                                    no-unused-vars
+   15:444017  error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   15:444055  error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   15:444526  error  'u' is defined but never used                                                                    no-unused-vars
+   15:444685  error  'r' is defined but never used                                                                    no-unused-vars
+   15:445069  error  't' is defined but never used                                                                    no-unused-vars
+   15:445071  error  'e' is defined but never used                                                                    no-unused-vars
+   15:445273  error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   15:445415  error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   15:450959  error  Redundant double negation                                                                        no-extra-boolean-cast
+   15:450960  error  Redundant double negation                                                                        no-extra-boolean-cast
+   15:457833  error  'f' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:457839  error  'p' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:459481  error  'o' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:459501  error  'c' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:459507  error  'u' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:461383  error  'c' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:461399  error  'u' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:461625  error  'l' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:461645  error  'u' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:461651  error  'f' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:465305  error  'r' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:465320  error  'i' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:466474  error  't' is defined but never used                                                                    no-unused-vars
+   15:470336  error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   15:471597  error  'e' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   15:471945  error  'r' is defined but never used                                                                    no-unused-vars
+   15:477009  error  'e4' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                        no-unused-vars
+   15:477690  error  '$Y' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                        no-unused-vars
+   15:478380  error  Do not access Object.prototype method 'hasOwnProperty' from target object                        no-prototype-builtins
+   15:488660  error  'r' is already defined                                                                           no-redeclare
+   15:490190  error  'e' is defined but never used                                                                    no-unused-vars
+   18:8382    error  'Zd' is a function                                                                               no-func-assign
+   18:10912   error  'x' is defined but never used                                                                    no-unused-vars
+   18:11610   error  'global' is not defined                                                                          no-undef
+   18:11664   error  'global' is not defined                                                                          no-undef
+   22:16007   error  Empty block statement                                                                            no-empty
+   22:18557   error  'r' is defined but never used                                                                    no-unused-vars
+   40:16302   error  Unnecessary escape character: \*                                                                 no-useless-escape
+   40:16379   error  'eu' is a function                                                                               no-func-assign
+   40:25830   error  'Buffer' is not defined                                                                          no-undef
+   41:2868    error  Empty block statement                                                                            no-empty
+   41:17927   error  '__magic__' is not defined                                                                       no-undef
+   41:17948   error  '__magic__' is not defined                                                                       no-undef
+   56:21894   error  'y' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   57:7289    error  Empty block statement                                                                            no-empty
+   57:7530    error  Empty block statement                                                                            no-empty
+   57:25128   error  'Deno' is not defined                                                                            no-undef
+   57:25157   error  'Deno' is not defined                                                                            no-undef
+   57:25387   error  'Deno' is not defined                                                                            no-undef
+   57:25416   error  'Deno' is not defined                                                                            no-undef
+   57:37241   error  'iu' is a function                                                                               no-func-assign
+   57:49555   error  Unnecessary escape character: \+                                                                 no-useless-escape
+   57:49557   error  Unnecessary escape character: \/                                                                 no-useless-escape
+   57:49559   error  Unnecessary escape character: \=                                                                 no-useless-escape
+   57:49926   error  'process' is not defined                                                                         no-undef
+   57:49950   error  'process' is not defined                                                                         no-undef
+   57:50020   error  'Buffer' is not defined                                                                          no-undef
+   57:50042   error  'Buffer' is not defined                                                                          no-undef
+   57:50115   error  'Buffer' is not defined                                                                          no-undef
+   57:50131   error  'Buffer' is not defined                                                                          no-undef
+   57:50142   error  'Buffer' is not defined                                                                          no-undef
+   57:50159   error  'Buffer' is not defined                                                                          no-undef
+   57:50216   error  'Buffer' is not defined                                                                          no-undef
+   57:50229   error  'Buffer' is not defined                                                                          no-undef
+   57:50249   error  'Buffer' is not defined                                                                          no-undef
+   57:50337   error  'Buffer' is not defined                                                                          no-undef
+   57:50356   error  'Buffer' is not defined                                                                          no-undef
+   57:50382   error  'Buffer' is not defined                                                                          no-undef
+   57:51215   error  'Buffer' is not defined                                                                          no-undef
+   57:51254   error  'Buffer' is not defined                                                                          no-undef
+   57:52140   error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+   57:52153   error  Unexpected control character(s) in regular expression: \x01, \x06                                no-control-regex
+   57:57306   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   57:59806   error  Unnecessary escape character: \-                                                                 no-useless-escape
+   57:61345   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:61439   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:61493   error  Unnecessary escape character: \.                                                                 no-useless-escape
+   57:61856   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:61911   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:62050   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:62113   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:62413   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:62708   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:62946   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:63045   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:63259   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:64707   error  Unnecessary escape character: \-                                                                 no-useless-escape
+   57:65331   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:65425   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:65468   error  Unnecessary escape character: \.                                                                 no-useless-escape
+   57:65824   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:65876   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:65969   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:66032   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:66332   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:66627   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:66865   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:66961   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:67174   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:68269   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   57:69774   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   57:69840   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   57:70765   error  Unnecessary escape character: \[                                                                 no-useless-escape
+   57:70928   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   57:71831   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   57:79778   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   57:81342   error  Expected a 'break' statement before 'default'                                                    no-fallthrough
+   57:85858   error  'Buffer' is not defined                                                                          no-undef
+   57:90536   error  'Buffer' is not defined                                                                          no-undef
+   57:90802   error  'Buffer' is not defined                                                                          no-undef
+   57:92362   error  'Buffer' is not defined                                                                          no-undef
+   57:92389   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   57:102051  error  Unnecessary escape character: \.                                                                 no-useless-escape
+   57:102100  error  Unnecessary escape character: \.                                                                 no-useless-escape
+   57:102108  error  Unnecessary escape character: \.                                                                 no-useless-escape
+   59:34      error  Unexpected control character(s) in regular expression: \x00, \x08, \x0b, \x0c, \x0e, \x1f        no-control-regex
+   64:720     error  'Buffer' is not defined                                                                          no-undef
+   65:910     error  Unexpected control character(s) in regular expression: \x00, \x08, \x0b, \x0c, \x0e, \x1f        no-control-regex
+   65:1127    error  'Buffer' is not defined                                                                          no-undef
+   67:1301    error  'Deno' is not defined                                                                            no-undef
+   67:1382    error  'IE_SaveFile' is not defined                                                                     no-undef
+   67:1584    error  'saveAs' is not defined                                                                          no-undef
+   67:1745    error  'chrome' is not defined                                                                          no-undef
+   67:1890    error  'chrome' is not defined                                                                          no-undef
+   67:2496    error  'Deno' is not defined                                                                            no-undef
+   67:3344    error  'e' is defined but never used                                                                    no-unused-vars
+   67:3766    error  Unnecessary escape character: \.                                                                 no-useless-escape
+   67:3778    error  Unnecessary escape character: \.                                                                 no-useless-escape
+   67:3790    error  Unnecessary escape character: \.                                                                 no-useless-escape
+   67:3803    error  Unnecessary escape character: \.                                                                 no-useless-escape
+   67:3815    error  Unnecessary escape character: \.                                                                 no-useless-escape
+   67:3827    error  Unnecessary escape character: \.                                                                 no-useless-escape
+   67:4084    error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   67:4098    error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   67:4877    error  'Buffer' is not defined                                                                          no-undef
+   67:5632    error  Empty block statement                                                                            no-empty
+   67:6880    error  Unnecessary escape character: \/                                                                 no-useless-escape
+   67:7777    error  Unnecessary escape character: \/                                                                 no-useless-escape
+   67:7864    error  Unnecessary escape character: \/                                                                 no-useless-escape
+   67:8273    error  'n' is defined but never used                                                                    no-unused-vars
+   67:8423    error  Unnecessary escape character: \/                                                                 no-useless-escape
+   68:15      error  Unnecessary escape character: \/                                                                 no-useless-escape
+   68:85      error  Unnecessary escape character: \/                                                                 no-useless-escape
+   68:87      error  Unnecessary escape character: \?                                                                 no-useless-escape
+   68:119     error  Unnecessary escape character: \/                                                                 no-useless-escape
+   68:166     error  Unnecessary escape character: \/                                                                 no-useless-escape
+   68:168     error  Unnecessary escape character: \?                                                                 no-useless-escape
+   68:256     error  'n' is defined but never used                                                                    no-unused-vars
+   68:1481    error  Unexpected control character(s) in regular expression: \x00, \x08, \x0b, \x1f                    no-control-regex
+   68:1732    error  Unexpected control character(s) in regular expression: \x00, \x1f                                no-control-regex
+   69:978     error  'e' is defined but never used                                                                    no-unused-vars
+   69:1312    error  'Buffer' is not defined                                                                          no-undef
+   69:1545    error  Unnecessary escape character: \/                                                                 no-useless-escape
+   69:1562    error  Unnecessary escape character: \/                                                                 no-useless-escape
+   69:1575    error  Unnecessary escape character: \/                                                                 no-useless-escape
+   69:3665    error  'Buffer' is not defined                                                                          no-undef
+   69:3690    error  'Buffer' is not defined                                                                          no-undef
+   69:3732    error  'Buffer' is not defined                                                                          no-undef
+   69:3917    error  'Buffer' is not defined                                                                          no-undef
+   69:4127    error  'Buffer' is not defined                                                                          no-undef
+   69:4313    error  'Buffer' is not defined                                                                          no-undef
+   69:4870    error  'Buffer' is not defined                                                                          no-undef
+   69:4995    error  'Buffer' is not defined                                                                          no-undef
+   69:5120    error  'Buffer' is not defined                                                                          no-undef
+   69:5243    error  'Buffer' is not defined                                                                          no-undef
+   69:5362    error  'Buffer' is not defined                                                                          no-undef
+   69:5481    error  'Buffer' is not defined                                                                          no-undef
+   69:5549    error  'Buffer' is not defined                                                                          no-undef
+   69:6057    error  'Buffer' is not defined                                                                          no-undef
+   69:7754    error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   69:8180    error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+   69:8853    error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   69:12660   error  Empty block statement                                                                            no-empty
+   69:34040   error  'o' is defined but never used                                                                    no-unused-vars
+   69:34486   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   79:8309    error  'e' is defined but never used                                                                    no-unused-vars
+   79:8311    error  'n' is defined but never used                                                                    no-unused-vars
+   79:11320   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   79:11885   error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+   79:11946   error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+   79:14186   error  Empty block statement                                                                            no-empty
+   79:17229   error  'e' is defined but never used                                                                    no-unused-vars
+   79:19365   error  'e' is defined but never used                                                                    no-unused-vars
+   79:22956   error  'e' is defined but never used                                                                    no-unused-vars
+   79:28137   error  't' is defined but never used                                                                    no-unused-vars
+   79:30671   error  'e' is defined but never used                                                                    no-unused-vars
+   79:31443   error  'l' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+   79:36185   error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+   79:37762   error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+   79:38154   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   79:38232   error  Expected a 'break' statement before 'default'                                                    no-fallthrough
+   79:42495   error  'Buffer' is not defined                                                                          no-undef
+   79:42808   error  Unexpected control character(s) in regular expression: \x1b                                      no-control-regex
+   79:42927   error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+   79:45963   error  'x' is defined but never used                                                                    no-unused-vars
+   80:567     error  'Buffer' is not defined                                                                          no-undef
+   85:275     error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   92:1596    error  'Buffer' is not defined                                                                          no-undef
+   93:1114    error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   93:1804    error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   93:7076    error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   93:8489    error  'z' is defined but never used                                                                    no-unused-vars
+   93:8802    error  'z' is defined but never used                                                                    no-unused-vars
+   93:9615    error  'z' is defined but never used                                                                    no-unused-vars
+   93:9682    error  'z' is defined but never used                                                                    no-unused-vars
+   93:13683   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   93:13853   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   93:14016   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   93:14272   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   93:14351   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   93:14430   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+   93:23617   error  'Buffer' is not defined                                                                          no-undef
+   93:23999   error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+   93:34464   error  Unnecessary escape character: \[                                                                 no-useless-escape
+   93:35640   error  'e' is defined but never used                                                                    no-unused-vars
+   93:35840   error  'e' is defined but never used                                                                    no-unused-vars
+   93:35842   error  'n' is defined but never used                                                                    no-unused-vars
+   93:52978   error  'e' is defined but never used                                                                    no-unused-vars
+   93:53583   error  'e' is defined but never used                                                                    no-unused-vars
+  111:456     error  'e' is defined but never used                                                                    no-unused-vars
+  111:458     error  'n' is defined but never used                                                                    no-unused-vars
+  119:376     error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:1375    error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:3001    error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:3020    error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+  119:3191    error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:3196    error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:4108    error  Unnecessary escape character: \(                                                                 no-useless-escape
+  119:4647    error  'e' is defined but never used                                                                    no-unused-vars
+  119:10022   error  'e' is defined but never used                                                                    no-unused-vars
+  119:10024   error  'n' is defined but never used                                                                    no-unused-vars
+  119:19152   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+  119:19196   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+  119:39570   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:39714   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:39752   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:39900   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:39968   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  119:41595   error  Empty block statement                                                                            no-empty
+  119:45491   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  120:1603    error  'n' is defined but never used                                                                    no-unused-vars
+  120:1605    error  'r' is defined but never used                                                                    no-unused-vars
+  120:5346    error  'e' is defined but never used                                                                    no-unused-vars
+  120:17285   error  Empty block statement                                                                            no-empty
+  120:18829   error  'e' is defined but never used                                                                    no-unused-vars
+  120:21277   error  'e' is defined but never used                                                                    no-unused-vars
+  120:26490   error  'e' is defined but never used                                                                    no-unused-vars
+  120:29959   error  'e' is defined but never used                                                                    no-unused-vars
+  120:30270   error  'l' is defined but never used                                                                    no-unused-vars
+  120:30272   error  'c' is defined but never used                                                                    no-unused-vars
+  120:30347   error  'n' is defined but never used                                                                    no-unused-vars
+  120:30349   error  'r' is defined but never used                                                                    no-unused-vars
+  120:30351   error  'i' is defined but never used                                                                    no-unused-vars
+  120:30353   error  'o' is defined but never used                                                                    no-unused-vars
+  120:30355   error  'l' is defined but never used                                                                    no-unused-vars
+  120:30357   error  'c' is defined but never used                                                                    no-unused-vars
+  120:30414   error  'n' is defined but never used                                                                    no-unused-vars
+  120:30416   error  'r' is defined but never used                                                                    no-unused-vars
+  120:30418   error  'i' is defined but never used                                                                    no-unused-vars
+  120:30420   error  'o' is defined but never used                                                                    no-unused-vars
+  120:30422   error  'l' is defined but never used                                                                    no-unused-vars
+  120:30424   error  'c' is defined but never used                                                                    no-unused-vars
+  120:30710   error  'n' is defined but never used                                                                    no-unused-vars
+  120:30904   error  'n' is defined but never used                                                                    no-unused-vars
+  120:31146   error  'n' is defined but never used                                                                    no-unused-vars
+  120:31366   error  'e' is defined but never used                                                                    no-unused-vars
+  120:33541   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+  122:1219    error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+  122:34590   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+  122:34631   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+  122:47230   error  'r' is defined but never used                                                                    no-unused-vars
+  123:624     error  Unnecessary escape character: \[                                                                 no-useless-escape
+  123:647     error  Expected a conditional expression and instead saw an assignment                                  no-cond-assign
+  124:198     error  Empty block statement                                                                            no-empty
+  124:2349    error  Unnecessary escape character: \/                                                                 no-useless-escape
+  158:14325   error  'be' is defined but never used                                                                   no-unused-vars
+  158:20696   error  Empty block statement                                                                            no-empty
+  158:22032   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  158:22226   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  158:23004   error  Unnecessary escape character: \/                                                                 no-useless-escape
+  158:24147   error  Empty block statement                                                                            no-empty
+  158:24429   error  'decrypt_agile' is not defined                                                                   no-undef
+  158:24520   error  'decrypt_std76' is not defined                                                                   no-undef
+  158:25890   error  'b' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+  158:28289   error  'x' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+  158:30449   error  'Buffer' is not defined                                                                          no-undef
+  158:31133   error  Unexpected control character(s) in regular expression: \x00                                      no-control-regex
+  158:31615   error  'Buffer' is not defined                                                                          no-undef
+  158:34223   error  'encrypt_agile' is not defined                                                                   no-undef
+  158:36482   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+  158:36513   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+  158:36596   error  Expected a 'break' statement before 'case'                                                       no-fallthrough
+  158:37071   error  'n' is defined but never used                                                                    no-unused-vars
+  160:13100   error  'global' is not defined                                                                          no-undef
+  160:20812   error  'be' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u               no-unused-vars
+  160:21597   error  'ha' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u               no-unused-vars
+
+D:\AGENT1\ios\App\App\public\assets\ios.transition-DMSlGwrG.js
+  1:4859  error  Unnecessary try/catch wrapper  no-useless-catch
+
+D:\AGENT1\src\App.jsx
+    8:127  error  'refreshBuildings' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        no-unused-vars
+  114:10   error  'filterSize' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     no-unused-vars
+  114:22   error  'setFilterSize' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  no-unused-vars
+  151:29   error  'setShowCustomerModal' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           no-unused-vars
+  164:10   error  'showSalesModal' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 no-unused-vars
+  164:26   error  'setShowSalesModal' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              no-unused-vars
+  248:5    error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  246 |
+  247 |   useEffect(() => {
+> 248 |     refreshData();
+      |     ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  249 |   }, [showCustomerModal, showOffersListModal, showCreateOfferModal, showContractsListModal, showCreateContractModal]);
+  250 |
+  251 |   // ... (Keep existing handlers: handleAddCustomer, handleCreateOffer, handleCancelOffer, handleAdd, handleDelete, handleImport)  react-hooks/set-state-in-effect
+  311:9    error  'handleCreateContract' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           no-unused-vars
+  411:24   error  'headers' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        no-unused-vars
+  428:15   error  'sampleId' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       no-unused-vars
+  608:17   error  'sampleText' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     no-unused-vars
+  609:17   error  'skipText' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       no-unused-vars
+
+D:\AGENT1\test-app\main.js
+  1:1  error  Parsing error: Unexpected character '�'
+
+✖ 958 problems (958 errors, 0 warnings)
+  12 errors and 0 warnings potentially fixable with the `--fix` option.
+

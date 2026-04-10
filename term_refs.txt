@@ -1,0 +1,37 @@
+﻿1870: const [terminatedContracts, setTerminatedContracts] = useState([]);
+1871: const [terminatedInstallments, setTerminatedInstallments] = useState([]);
+2740: alert('Contract terminated successfully. Unit has been updated.');
+3742: {hasPermission('terminated') && (
+3744: onClick={() => setCurrentView('terminated')}
+3749: <h2>{t('home.terminated')}</h2>
+3750: <p>{t('home.terminated.subtitle')}</p>
+4747: {currentView === 'terminated' && (
+4766: promptPassword('DANGER: Enter password to clear ALL terminated history:', async (password) => {
+4809: const filtered = terminatedContracts.filter(tc => {
+4815: const linkedIns = (terminatedInstallments || []).filter(ti =>
+4835: const linkedIns = (terminatedInstallments || [])
+5165: borderLeft: ins.status === 'terminated'
+5175: ...(ins.status === 'terminated' ? {
+5211: {ins.status === 'terminated' && (
+6331: ...(contract.status === 'terminated' || contract.status === 'resold' ? {
+6343: {contract.status === 'terminated' ? (
+6376: {contract.status === 'terminated' ? (
+6612: // Show ONLY cancelled, terminated, terminated_contract, or resold_contract
+6613: return o.status === 'cancelled' || o.status === 'terminated' || o.status === 'terminated_contract' || o.status === 'resold_contract';
+6619: const statusOrder = { 'active': 1, 'contracted': 2, 'resold_contract': 3, 'terminated_contract': 4, 'cancelled': 5 };
+6633: ...(offer.status === 'cancelled' || offer.status === 'terminated_contract' || offer.status === 'resold_contract' ? {
+6639: borderLeftColor: offer.status === 'resold_contract' ? '#E67E22' : (offer.status === 'terminated_contract' ? '#8B0000' : '#DC2626')
+6649: ) : offer.status === 'terminated_contract' ? (
+6772: {offer.status === 'terminated_contract' && (
+6775: const terminatedContract = contracts.find(c => c.id === offer.contractId);
+6776: if (terminatedContract) setViewingContract(terminatedContract);
+9524: {viewingContract.status === 'terminated' && (
+10038: {viewingContract.status !== 'terminated' && viewingContract.status !== 'resold' ? (
+10047: ) : viewingContract.status === 'terminated' ? (
+10059: <span style={{ color: '#DC2626', fontSize: '0.85rem', fontWeight: '600' }}>This contract has been terminated. All data is preserved for reference.</span>
+11764: terminatedContracts={terminatedContracts}
+11765: terminatedInstallments={terminatedInstallments}
+12744: terminatedContracts,
+12745: terminatedInstallments,
+13315: <div className={`nav-item ${currentView === 'terminated' ? 'active' : ''}`} onClick={() => setCurrentView('terminated')}>
+13317: <span>{t('home.terminated')}</span>

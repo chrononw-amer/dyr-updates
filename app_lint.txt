@@ -1,0 +1,28 @@
+
+C:\CHRONO DEVELOPMENT\src\App.jsx
+    11:198  error    'removeOfferOnly' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                                                                       no-unused-vars
+    19:46   error    'isRTL' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                 no-unused-vars
+   149:10   error    'reportFromDate' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                               no-unused-vars
+   149:26   error    'setReportFromDate' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                            no-unused-vars
+   151:10   error    'reportToDate' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                 no-unused-vars
+   151:24   error    'setReportToDate' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                              no-unused-vars
+   196:6    warning  React Hook useEffect has missing dependencies: 'appSettings.fontSize' and 'appSettings.theme'. Either include them or remove the dependency array            react-hooks/exhaustive-deps
+   317:40   error    'setShowTerminatedContractsModal' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                              no-unused-vars
+   318:43   error    'setShowTerminatedInstallmentsModal' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                           no-unused-vars
+   392:6    warning  React Hook useEffect has missing dependencies: 'offerForm.finalPrice' and 'offerForm.installmentAmount'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+   398:10   error    'selectedContractUnit' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                         no-unused-vars
+   398:32   error    'setSelectedContractUnit' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                      no-unused-vars
+   709:24   error    'headers' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                      no-unused-vars
+   728:15   error    'sampleId' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                     no-unused-vars
+   781:17   error    'currentCustomers' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                             no-unused-vars
+   907:17   error    'sampleText' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                   no-unused-vars
+   908:17   error    'skipText' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                     no-unused-vars
+   971:5    error    'setPasswordAlert' is not defined                                                                                                                            no-undef
+   989:5    error    'setPasswordAlert' is not defined                                                                                                                            no-undef
+  1235:25   error    'williamShareValue' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                            no-unused-vars
+  1930:45   error    'index' is defined but never used                                                                                                                            no-unused-vars
+  3012:43   error    'rest' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                         no-unused-vars
+  3599:140  error    'idx' is defined but never used                                                                                                                              no-unused-vars
+
+✖ 23 problems (21 errors, 2 warnings)
+
