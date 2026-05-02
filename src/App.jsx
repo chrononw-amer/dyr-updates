@@ -8,12 +8,12 @@ import { add, trash, business, chevronBack, chevronForward, documentAttach, clou
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
-  getBuildings, addBuilding, removeBuilding, addUnitToBuilding, removeUnitFromBuilding, saveBuildings, getCustomers, addCustomer, updateCustomer, deleteCustomer, getOffers, addOffer, addOfferPayment, cancelOffer, deleteOffer, markOfferContracted, convertOfferToContract, getContracts, addContract, cancelContract, saveContracts, getInstallments, updateInstallment, saveInstallments, addInstallmentFeedback, deleteInstallmentFeedback, addInstallmentPayment, deleteInstallmentPayment, deleteAllInstallments, deleteAllContracts, deleteAllCustomers, getSales, addSales, deleteSales, updateSales, deleteAllSales, getAppConfig, saveOffers, generateOfferInstallments, terminateContractInPlace, resaleContractInPlace, reactivateOffer, reactivateContract,
-  getDatabaseConfig, setDatabaseConfig, getCompanyBranding, setCompanyBranding, getAppState, setAppState, getAppSecurity, setAppSecurity, getCurrency, setCurrency, formatCurrency, syncPendingLogs, updateInstallmentPayment, updateOfferPaymentStatus, updateOfferPayment, flashFillContractInstallments, updateContract, updateOffer,
-  getWallets, addWallet, deleteWallet, updateWallet, bulkUpdateUnitPrices, undoBulkUpdatePrices, fixCuve141FinishedPrices, fixCruise140FinishedPrices, fixCruise140BasePrices, fixCruise140FinishedPricesV2, logActivity, getConnectionStatus
+  getBuildings, addBuilding, removeBuilding, addUnitToBuilding, removeUnitFromBuilding, saveBuildings, getCustomers, addCustomer, updateCustomer, deleteCustomer, getOffers, addOffer, addOfferPayment, cancelOffer, deleteOffer, markOfferContracted, convertOfferToContract, getContracts, addContract, cancelContract, saveContracts, deleteContract, getInstallments, updateInstallment, saveInstallments, addInstallmentFeedback, deleteInstallmentFeedback, addInstallmentPayment, deleteInstallmentPayment, deleteAllInstallments, deleteAllContracts, deleteAllCustomers, getSales, addSales, deleteSales, updateSales, deleteAllSales, getAppConfig, saveOffers, generateOfferInstallments, terminateContractInPlace, resaleContractInPlace, reactivateOffer, reactivateContract,
+  getDatabaseConfig, setDatabaseConfig, getCompanyBranding, setCompanyBranding, getUserBranding, setUserBranding, getAppState, setAppState, getAppSecurity, setAppSecurity, getCurrency, setCurrency, formatCurrency, syncPendingLogs, updateInstallmentPayment, updateOfferPaymentStatus, updateOfferPayment, flashFillContractInstallments, updateContract, updateOffer,
+  getWallets, addWallet, deleteWallet, updateWallet, bulkUpdateUnitPrices, undoBulkUpdatePrices, fixCuve141FinishedPrices, fixCruise140FinishedPrices, fixCruise140BasePrices, fixCruise140FinishedPricesV2, logActivity, getConnectionStatus, migrateSalesToBrokers, migrateOneBrokerAgents, getBrokers, getCommissions
 } from './services/DataService';
 import { supabase } from './services/supabase';
-import { parseUnitsExcel, exportInstallmentsToExcel, exportFilteredInstallmentsToExcel, parseInstallmentsExcel, exportContractsToExcel, parseContractsExcel, exportCustomersToExcel, parseCustomersExcel, parseSalesExcel, exportBuildingUnitsToExcel } from './services/ExcelService';
+import { parseUnitsExcel, exportInstallmentsToExcel, exportFilteredInstallmentsToExcel, parseInstallmentsExcel, exportContractsToExcel, parseContractsExcel, exportCustomersToExcel, parseCustomersExcel, parseSalesExcel, exportBuildingUnitsToExcel, downloadInstallmentsTemplate, downloadUnitsTemplate, downloadCustomersTemplate, downloadContractsTemplate } from './services/ExcelService';
 import { generateReceiptPDF } from './helpers/ReceiptGenerator';
 import CommissionsView from './components/CommissionsView';
 import { generateChequeCustodyPDF } from './helpers/ChequeCustodyGenerator';
@@ -21,11 +21,13 @@ import { exportFileMobile } from './services/MobileExportService';
 
 import ReportsHub from './components/ReportsHub';
 import PDFPreviewModal from './components/PDFPreviewModal';
+import { generateContractStatementPDF } from './helpers/ContractStatementGenerator';
 import ChequePreview from './components/ChequePreview';
 import ErrorBoundary from './components/ErrorBoundary';
 import AdminSessionsModal from './components/AdminSessionsModal';
 import ChatOverlay from './components/ChatOverlay';
 import LoginModal from './components/LoginModal';
+import AIAssistant from './components/AIAssistant';
 import { getUsers, addUser, updateUserSession, getUserSession } from './services/UserService';
 import { registerSession, sendHeartbeat, clearCommand, updateBackupUrl, updateSessionStatus, updateSessionTab, updateSessionUserInfo, updateSessionHostStatus, clearSessionUserInfo, kickOtherSessions, detectDeviceType, getDeviceId, getExternalIP, getLocationFromIP } from './services/SessionService';
 import { validateHeartbeat, getSecondaryLockState, calibrateTime, runIntegrityCheck } from './services/IntegrityService';
@@ -211,6 +213,43 @@ const parseSafeDate = (dStr) => {
     }
   }
   return d;
+};
+
+// Segment-aware late fee calculator (mirrors ReportsHub version, reads rate from app security)
+const calcLateFeeApp = (ins, today = new Date()) => {
+  if (!ins || ins.lateFeeWaived) return { total: 0, segments: [], waived: !!ins?.lateFeeWaived };
+  const dueDate = parseSafeDate(ins.dueDate);
+  if (!dueDate || isNaN(dueDate.getTime())) return { total: 0, segments: [] };
+  // Read both settings upfront
+  const rateMonthly = (() => { try { return (getAppSecurity().lateFeeRateMonthly ?? 3.5); } catch(e){ return 3.5; } })();
+  const graceDays  = (() => { try { return (getAppSecurity().lateFeeGraceDays  ?? 7);   } catch(e){ return 7;   } })();
+  const graceEnd = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate() + graceDays);
+  const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  if (todayMid <= graceEnd) return { total: 0, segments: [] };
+  const DAILY_RATE = (rateMonthly / 100) / 30;
+  const totalAmount = Number(ins.amount || 0);
+  const payments = [...(ins.payments || [])]
+    .map(p => ({ ...p, _date: parseSafeDate(p.date || p.paymentDate) }))
+    .filter(p => p._date && !isNaN(p._date.getTime()))
+    .sort((a, b) => a._date - b._date);
+  // Fee clock starts from due date (grace is a free window; if missed, full period is owed)
+  const dueMid = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+  let balance = totalAmount, segStart = dueMid, feeTot = 0;
+  const segs = [];
+  for (const pmt of payments) {
+    const pmtDay = new Date(pmt._date.getFullYear(), pmt._date.getMonth(), pmt._date.getDate());
+    if (pmtDay <= graceEnd) { balance = Math.max(0, balance - Number(pmt.amount || 0)); continue; }
+    if (balance <= 0) break;
+    const days = Math.max(0, Math.round((pmtDay - segStart) / 86400000));
+    if (days > 0) { const sf = balance * DAILY_RATE * days; segs.push({ days, balance, fee: sf }); feeTot += sf; }
+    balance = Math.max(0, balance - Number(pmt.amount || 0));
+    segStart = pmtDay;
+  }
+  if (balance > 0) {
+    const days = Math.max(0, Math.round((todayMid - segStart) / 86400000));
+    if (days > 0) { const sf = balance * DAILY_RATE * days; segs.push({ days, balance, fee: sf, ongoing: true }); feeTot += sf; }
+  }
+  return { total: feeTot, segments: segs, waived: false };
 };
 
 const formatExcelDate = (dateVal) => {
@@ -738,9 +777,16 @@ const App = () => {
       }
     }
 
+    // Payment Date on receipt = cheque/payment date if explicitly set,
+    // otherwise the installment's scheduled due date.
+    const resolvedPaymentDate = paymentExtra.date ||
+      (paymentExtra.id ? (ins.payments || []).find(p => p.id === paymentExtra.id)?.date : null) ||
+      ins.dueDate;
+
     const doc = await generateReceiptPDF({
       ...ins,
       ...paymentExtra,
+      dueDate: resolvedPaymentDate,
       customerName: customerName || 'Unknown',
       jointPurchasers: jpNames,
       guarantor: gName,
@@ -750,7 +796,8 @@ const App = () => {
       installmentPaid: finalInstallmentPaid,
       paidAmount: finalPaidAmount,
       payments: paymentsToShow,
-      layoutImage: layoutImage
+      layoutImage: layoutImage,
+      receivedBy: loggedInUser?.name || ''
     });
     handlePreviewPDF(doc, `REC-${ins.unitId}-${Date.now()}.pdf`);
   };
@@ -808,9 +855,9 @@ const App = () => {
       }
     }
 
-    // Calculate down payment required for this offer
-    const dpRequired = Number(offer.downPaymentAmount) ||
-      (offerTotal * (Number(offer.downPayment) / 100)) || offerTotal;
+    // Calculate down payment required for this offer (from DP installment)
+    const dpInstallmentForReceipt = (offer.installments || []).find(ins => (ins.type || '').toLowerCase().includes('down payment'));
+    const dpRequired = dpInstallmentForReceipt ? Number(dpInstallmentForReceipt.amount || 0) : (Number(offer.downPaymentAmount) || (offerTotal * (Number(offer.downPayment) / 100)) || offerTotal);
 
     const doc = await generateReceiptPDF({
       ...payment,
@@ -828,8 +875,10 @@ const App = () => {
       paymentMethod: payment.paymentMethod || payment.method || 'CASH',
       chequeNumber: payment.chequeNumber || payment.ref || '',
       bank: payment.bank || '',
+      reference: payment.reference || payment.ref || '',
       payments: paymentsToShow,
-      layoutImage: layoutImage
+      layoutImage: layoutImage,
+      receivedBy: loggedInUser?.name || ''
     });
     handlePreviewPDF(doc, `REC-${offer.unitId}-${Date.now()}.pdf`);
   };
@@ -844,13 +893,14 @@ const App = () => {
   const [branding, setBranding] = useState({ name: '', header: null, footer: null, landscapeHeader: null, landscapeFooter: null, logo: null, logoDark: null });
   const [showChequeCustody, setShowChequeCustody] = useState(false);
   const [chequeCustodySelection, setChequeCustodySelection] = useState([]);
+  const [chequeCustodyMarkReceived, setChequeCustodyMarkReceived] = useState(false);
   const isNativeMobile = window.Capacitor && window.Capacitor.isNativePlatform();
   const [dbConfig, setDbConfig] = useState({
     type: isNativeMobile ? 'hosted' : 'local',
     url: 'http://localhost:3001/api',
     mobilePath: ''
   });
-  const [securityConfig, setSecurityConfig] = useState({ adminPassword: '', ownerPassword: 'ALEXmoh12!@' });
+  const [securityConfig, setSecurityConfig] = useState({ adminPassword: '', ownerPassword: 'ALEXmoh12!@', lateFeeRateMonthly: 3.5, lateFeeGraceDays: 7 });
 
   // DB Folder State
   const [currentDbPath, setCurrentDbPath] = useState('Loading...');
@@ -862,6 +912,7 @@ const App = () => {
   const [expressServerLoading, setExpressServerLoading] = useState(false);
   const [expressServerStats, setExpressServerStats] = useState(null);
   const [autoStartServer, setAutoStartServer] = useState(false);
+  const [testConnectionResult, setTestConnectionResult] = useState(null); // null | { ok, message }
 
   // Poll Express server health for monitoring stats
   useEffect(() => {
@@ -907,26 +958,24 @@ const App = () => {
     // On Android, force 'hosted' if config was 'local' (since Electron APIs don't exist)
     // On Android, we treat 'local' as valid (Internal Storage)
     setDbConfig(existingConfig);
-    setSecurityConfig(existingSecurity);
+    setSecurityConfig({ lateFeeRateMonthly: 3.5, lateFeeGraceDays: 7, ...existingSecurity });
 
     if (!appState.setupComplete || !existingBranding.name) {
-      if (isNativeMobile) {
-        // Mobile: skip setup wizard entirely — auto-configure with defaults
-        // User can change everything from Settings later
-        if (!existingBranding.name) {
-          const defaultBranding = { ...existingBranding, name: 'DYR' };
-          setCompanyBranding(defaultBranding);
-          setBranding(defaultBranding);
-        }
-        if (!appState.setupComplete) {
-          setDatabaseConfig(existingConfig);
-          setAppSecurity(existingSecurity);
-          setAppState({ setupComplete: true });
-        }
-      } else {
-        // Desktop: show setup wizard for folder config
-        setShowSetupWizard(true);
+      // Always silently apply defaults — only the owner (chrono/dyr) sees
+      // the setup wizard, and only from within Settings. All other users
+      // get a default brand applied automatically so the app loads clean.
+      if (!existingBranding.name) {
+        const defaultBranding = { ...existingBranding, name: 'DYR' };
+        setCompanyBranding(defaultBranding);
+        setBranding(defaultBranding);
       }
+      if (!appState.setupComplete) {
+        setDatabaseConfig(existingConfig);
+        setAppSecurity(existingSecurity);
+        setAppState({ setupComplete: true });
+      }
+      // Setup wizard is now owner-only, launched from Settings → Company tab
+      // setShowSetupWizard(true) — removed: no longer auto-pops on startup
     }
 
     // Fetch DB Path and Backup Path if local
@@ -984,6 +1033,13 @@ const App = () => {
       if (result.success) {
         setExpressServerRunning(true);
         setExpressServerIP(result.ip);
+        // Firewall is opened automatically by main.js — show feedback
+        if (window.electronAPI?.openFirewallPort) {
+          // Already triggered server-side; just notify the user
+          setTimeout(() => {
+            // Non-blocking notification so it doesn't block server startup
+          }, 500);
+        }
       } else {
         alert(`Failed to start server: ${result.error}`);
       }
@@ -1003,6 +1059,48 @@ const App = () => {
       alert(`Error: ${err.message}`);
     }
     setExpressServerLoading(false);
+  };
+
+  // Test connection from Android to PC server
+  const handleTestConnection = async () => {
+    setTestConnectionResult({ ok: null, message: 'Testing...' });
+    const url = dbConfig.url || '';
+    let apiUrl = url.trim();
+    if (!apiUrl) {
+      setTestConnectionResult({ ok: false, message: 'No server IP entered.' });
+      return;
+    }
+    // Build full URL
+    if (!apiUrl.startsWith('http')) {
+      const clean = apiUrl.replace(/^[\/\\]+|[\/\\]+$/g, '');
+      apiUrl = clean.includes(':') ? `http://${clean}` : `http://${clean}:3001`;
+    }
+    if (!apiUrl.endsWith('/api')) apiUrl = `${apiUrl}/api`.replace(/\/\/api/g, '/api');
+    try {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(`${apiUrl}/health`, { signal: controller.signal });
+      clearTimeout(tid);
+      if (res.ok) {
+        const data = await res.json();
+        setTestConnectionResult({ ok: true, message: `✅ Connected! Server at ${data.host?.ip || apiUrl} — Status: ${data.status}` });
+      } else if (res.status === 403) {
+        const body = await res.json().catch(() => ({}));
+        if (body.clientStatus === 'pending') {
+          setTestConnectionResult({ ok: 'pending', message: '⏳ Connection reached server but awaiting approval from the PC host.' });
+        } else {
+          setTestConnectionResult({ ok: false, message: `❌ Server responded with 403: ${body.message || 'Access denied'}` });
+        }
+      } else {
+        setTestConnectionResult({ ok: false, message: `❌ Server responded with HTTP ${res.status}` });
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        setTestConnectionResult({ ok: false, message: '❌ Timeout — Server not reachable. Check IP address and make sure the PC server is running.' });
+      } else {
+        setTestConnectionResult({ ok: false, message: `❌ Failed: ${e.message}` });
+      }
+    }
   };
 
 
@@ -1175,10 +1273,12 @@ const App = () => {
   const [updateProgress, setUpdateProgress] = useState({ percent: 0, bytesPerSecond: 0, total: 0, transferred: 0 });
   const [updateInfo, setUpdateInfo] = useState(null);
   const [updateError, setUpdateError] = useState('');
+  const autoInstallOnDownload = useRef(false); // true when user explicitly triggered the update
 
   // View State: 'home' | 'buildings'
   const [currentView, setCurrentView] = useState('home');
   const [activeTabId, setActiveTabId] = useState('home');
+  const mainContentRef = useRef(null);
 
   // --- Tab System ---
   const TAB_LABELS = {
@@ -1191,26 +1291,39 @@ const App = () => {
   const [openTabs, setOpenTabs] = useState([{ id: 'home', view: 'home', label: t('nav.dashboard') }]);
   const tabClickTimerRef = useRef(null);
   const [tabContextMenu, setTabContextMenu] = useState(null); // { x, y, tabId, tabView }
+  // Ref used by navigateToView to read loggedInUser without TDZ (loggedInUser is declared later)
+  const _navUserRef = useRef(null);
 
   const navigateToView = useCallback((viewKey) => {
+    // ── Plan gate: feature-locked views ──────────────────────────
+    const featureGates = {
+      cheques: { flag: 'cheques', name: 'Cheques Printing', required: 'Pro' },
+    };
+    const gate = featureGates[viewKey];
+    if (gate && _navUserRef.current?.role !== 'owner') {
+      const limits = _navUserRef.current?.planLimits || {};
+      if (!limits[gate.flag]) {
+        alert(`🔒 Access Denied\n\n"${gate.name}" is not available on your current plan.\n\nUpgrade to ${gate.required} or higher at dyr-app.com/portal`);
+        return;
+      }
+    }
     // Settings, reports, etc. open modals — don't create tabs for those
     const label = TAB_LABELS[viewKey];
     if (!label) { setCurrentView(viewKey); return; }
     setOpenTabs(prev => {
       const existing = prev.find(t => t.view === viewKey);
       if (!existing) {
-        // First instance: id === viewKey for simplicity
         const newTab = { id: viewKey, view: viewKey, label };
         setActiveTabId(viewKey);
         setCurrentView(viewKey);
         return [...prev, newTab];
       }
-      // Switch to the existing tab
       setActiveTabId(existing.id);
       setCurrentView(viewKey);
       return prev;
     });
   }, []);
+
 
   const duplicateTab = useCallback((viewKey) => {
     if (viewKey === 'home') return;
@@ -1349,11 +1462,53 @@ const App = () => {
   const [walletSearchQuery, setWalletSearchQuery] = useState('');
   const [checkSearchQuery, setCheckSearchQuery] = useState('');
   const [linkedCheckSearchQuery, setLinkedCheckSearchQuery] = useState('');
+  // Wallet delete confirmation (admin only)
+  const [walletDeleteConfirm, setWalletDeleteConfirm] = useState(null); // { wallet } | null
+  const [walletDeletePassword, setWalletDeletePassword] = useState('');
+  const [walletDeleteError, setWalletDeleteError] = useState('');
+  const [walletDeleteLoading, setWalletDeleteLoading] = useState(false);
 
 
   // Settings State
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [pillHovered, setPillHovered] = useState(false);
+  // Close the user pill dropdown when clicking outside of it
+  useEffect(() => {
+    if (!pillHovered) return;
+    const handler = (e) => {
+      if (!e.target.closest('.header-user-pill') && !e.target.closest('[data-user-dropdown]')) {
+        setPillHovered(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [pillHovered]);
+  const [settingsTab, setSettingsTab] = useState('layout'); // layout | database | company | security | about
   const [showAdminModal, setShowAdminModal] = useState(false);
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [showNotifCenter, setShowNotifCenter] = useState(false);
+  const [notifFilter, setNotifFilter] = useState(() => localStorage.getItem('dyr_notif_filter') || 'all');
+  const [showNotifOptions, setShowNotifOptions] = useState(false);
+  // Track which installment IDs have already been sent a WhatsApp reminder
+  const [reminderSentIds, setReminderSentIds] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('dyr_reminded_ins') || '[]')); }
+    catch { return new Set(); }
+  });
+  const markReminderSent = (ids) => {
+    setReminderSentIds(prev => {
+      const next = new Set([...prev, ...ids]);
+      localStorage.setItem('dyr_reminded_ins', JSON.stringify([...next]));
+      return next;
+    });
+  };
+  const clearReminderHistory = () => {
+    localStorage.removeItem('dyr_reminded_ins');
+    setReminderSentIds(new Set());
+  };
+  const [showInstallmentImportModal, setShowInstallmentImportModal] = useState(false);
+  const [showUnitImportModal, setShowUnitImportModal] = useState(false);
+  const [showCustomerImportModal, setShowCustomerImportModal] = useState(false);
+  const [showContractImportModal, setShowContractImportModal] = useState(false);
 
   // Customer / Sales Detail View State
   const [viewingCustomerDetail, setViewingCustomerDetail] = useState(null);
@@ -1366,9 +1521,77 @@ const App = () => {
   const [sessionMac, setSessionMac] = useState(null);
   const [sessionSysInfo, setSessionSysInfo] = useState(null);
   const [loggedInUser, setLoggedInUser] = useState(null);
+  const loggedInUserRef = useRef(null); // Always-fresh ref for heartbeat closure
+  // Keep _navUserRef synced so navigateToView can gate features without TDZ
+  useEffect(() => { _navUserRef.current = loggedInUser; }, [loggedInUser]);
+
+  // ── Plan limit helper ──────────────────────────────────────────
+  const planLimits = loggedInUser?.planLimits || { maxBuildings: Infinity, maxUsers: Infinity, cheques: true, dyrai: true, android: true, cloud: true };
+  const checkPlanLimit = (feature, currentCount, max) => {
+    if (loggedInUser?.role === 'owner') return true;
+    if (max !== Infinity && currentCount >= max) {
+      alert(`⚠️ Plan Limit Reached\n\nYour current plan allows up to ${max} ${feature}.\nUpgrade your plan at dyr-app.com/portal to add more.`);
+      return false;
+    }
+    return true;
+  };
+  const checkFeature = (featureName, isAllowed) => {
+    if (loggedInUser?.role === 'owner') return true;
+    if (!isAllowed) {
+      alert(`⚠️ Feature Not Available\n\n"${featureName}" is not included in your current plan.\nUpgrade at dyr-app.com/portal to unlock it.`);
+      return false;
+    }
+    return true;
+  };
+
+  // ── Subscription expiry warning ──────────────────────────────
+  const subscriptionDaysLeft = (() => {
+    if (!loggedInUser || loggedInUser.role === 'owner') return null;
+    if (!loggedInUser.subscriptionEnd) return null;
+    const diff = Math.ceil((new Date(loggedInUser.subscriptionEnd) - new Date()) / 86400000);
+    return diff;
+  })();
+  const showExpiryBanner = subscriptionDaysLeft !== null && subscriptionDaysLeft <= 7;
+
+  // ── Database bypass detection ─────────────────────────────────
+  const [planViolation, setPlanViolation] = useState(null);
+  useEffect(() => {
+    if (!loggedInUser || loggedInUser.role === 'owner') { setPlanViolation(null); return; }
+    if (!buildings || buildings.length === 0) { setPlanViolation(null); return; }
+    const limits  = loggedInUser.planLimits || {};
+    const maxB    = limits.maxBuildings;
+    const planName = (loggedInUser.plan || 'free').toUpperCase();
+
+    // 1. Check buildings count
+    if (maxB !== Infinity && buildings.length > maxB) {
+      setPlanViolation({
+        type: 'buildings',
+        msg: `You have ${buildings.length} buildings but your ${planName} plan allows ${maxB === 1 ? '1 building' : `${maxB} buildings`}. Upgrade to keep all data accessible.`
+      });
+      return;
+    }
+
+    // 2. Check total unit count (Free = 20 total, Light = 100 total)
+    const maxUnits = maxB === 1 ? 20 : maxB <= 5 ? 100 : Infinity;
+    if (maxUnits !== Infinity) {
+      const totalUnits = buildings.reduce((sum, b) => sum + (b.units || []).length, 0);
+      if (totalUnits > maxUnits) {
+        setPlanViolation({
+          type: 'units',
+          msg: `You have ${totalUnits} units but your ${planName} plan allows ${maxUnits} units maximum. Upgrade to keep all units accessible.`
+        });
+        return;
+      }
+    }
+
+    setPlanViolation(null);
+  }, [buildings, loggedInUser]);
+
 
   // Access Timer State
   const [accessExpiresAt, setAccessExpiresAt] = useState(null); // ISO string or null (permanent)
+  const [clientLimitHours, setClientLimitHours] = useState({}); // { [ip]: hoursString }
+  const [drawerOpen, setDrawerOpen] = useState(false); // Side navigation drawer
   const [accessCountdown, setAccessCountdown] = useState(''); // Display string
   const [accessUrgency, setAccessUrgency] = useState('green'); // green/yellow/red/expired/permanent
 
@@ -1414,6 +1637,11 @@ const App = () => {
       enforceSingleSession(loggedInUser, sessionMac);
     }
   }, [loggedInUser, sessionMac, enforceSingleSession]);
+
+  // Keep ref in sync so heartbeat closure always has the fresh login state
+  useEffect(() => {
+    loggedInUserRef.current = loggedInUser;
+  }, [loggedInUser]);
 
   // -- ACCESS COUNTDOWN TIMER (updates every second) --
   useEffect(() => {
@@ -1547,7 +1775,8 @@ const App = () => {
               calibrateTime(statusData.last_active);
 
               // --- SINGLE CLIENT ENFORCEMENT ---
-              if (statusData.session_status === 'logged_out' && loggedInUser) {
+              // Use ref (not state) so the closure always sees the current login
+              if (statusData.session_status === 'logged_out' && loggedInUserRef.current) {
                 alert(t('alert.loggedOutFromAnotherDevice'));
                 localStorage.removeItem('is_device_trusted');
                 localStorage.removeItem('trusted_user_name');
@@ -1675,12 +1904,29 @@ const App = () => {
     };
   }, []);
 
-  // Auto-save branding changes
+  // Auto-save branding changes (admins only — each admin saves to their own key)
   useEffect(() => {
-    if (branding.name) {
-      setCompanyBranding(branding);
+    const isAdmin = loggedInUser?.rank === 'admin';
+    if (!branding.name || !isAdmin || !loggedInUser?.id) return;
+    setUserBranding(loggedInUser.id, branding);
+  }, [branding, loggedInUser]);
+
+  // When a user logs in, load the appropriate branding:
+  //   - Admin: load their own saved branding (falls back to owner's if none set)
+  //   - Others (including owner): keep global branding, override display name only
+  useEffect(() => {
+    if (!loggedInUser) return;
+    const isAdmin = loggedInUser.rank === 'admin';
+    if (isAdmin) {
+      const adminBranding = getUserBranding(loggedInUser.id);
+      setBranding(prev => ({
+        ...adminBranding,
+        name: adminBranding.name || loggedInUser.company || prev.name,
+      }));
+    } else if (loggedInUser.company) {
+      setBranding(prev => ({ ...prev, name: loggedInUser.company }));
     }
-  }, [branding]);
+  }, [loggedInUser]);
 
   const [currentLang, setCurrentLang] = useState(getCurrentLanguage());
   const [appSettings, setAppSettings] = useState({
@@ -1763,6 +2009,11 @@ const App = () => {
         setOffers(await getOffers());
         setSales(await getSales());
 
+        // One-time migration: assign sales agents to broker companies
+        try { await migrateSalesToBrokers(); setSales(await getSales()); } catch (e) { console.error('Sales→Broker migration failed:', e); }
+        try { await migrateOneBrokerAgents(); setSales(await getSales()); } catch (e) { console.error('ONE BROKER reassign migration failed:', e); }
+
+        setBrokers(await getBrokers());
         setWallets(await getWallets());
 
         // Fail-safe: Create default admin if no users exist
@@ -1810,8 +2061,7 @@ const App = () => {
             if (config.latest_version > APP_VERSION) {
               setRemoteVersion(config.latest_version);
               setApkUrl(config.apk_url || '');
-              // setHasUpdate(true); // Disabled auto-prompt
-              // setShowUpdateModal(true); // Disabled auto-prompt
+              setShowUpdateModal(true);
             }
           }
         } catch (e) {
@@ -1835,6 +2085,8 @@ const App = () => {
         setUpdateStatus(data.status);
         if (data.info) setUpdateInfo(data.info);
         if (data.error) setUpdateError(data.error);
+        // NOTE: We do NOT auto-install. When status === 'downloaded', the UI
+        // shows a "Restart & Install" button so the user triggers it manually.
       });
 
       window.electronAPI.onUpdateProgress((data) => {
@@ -1877,7 +2129,8 @@ const App = () => {
 
   const handleDownloadUpdate = async () => {
     if (window.electronAPI && window.electronAPI.downloadUpdate) {
-      setUpdateStatus('downloading');
+      setUpdateStatus('downloading');   // always set BEFORE starting download
+      setUpdateProgress({ percent: 0, bytesPerSecond: 0, total: 0, transferred: 0 });
       await window.electronAPI.downloadUpdate();
     } else if (updateInfo?.apkUrl) {
       // Mobile: open APK download URL in browser
@@ -1967,6 +2220,20 @@ const App = () => {
 
     prevTabIdRef.current = activeTabId;
   }, [activeTabId]);
+
+  // Scroll main content to top when switching views/tabs
+  useEffect(() => {
+    if (mainContentRef.current) {
+      mainContentRef.current.scrollToTop?.(0);
+    }
+    // Also try native scroll reset for safety
+    const scrollEl = document.querySelector('ion-content.ion-padding');
+    if (scrollEl) {
+      scrollEl.scrollToTop?.(0);
+      // Fallback: get the shadow root scroll container
+      scrollEl.getScrollElement?.().then?.(el => { if (el) el.scrollTop = 0; }).catch?.(() => {});
+    }
+  }, [currentView, activeTabId]);
 
   const handleRequestRemoteUpdate = async () => {
     if (window.electronAPI && window.electronAPI.getSystemInfo) {
@@ -2079,130 +2346,167 @@ const App = () => {
       const doc = new jsPDF({ orientation: 'landscape' });
       setupArabicFont(doc);
       doc.setFont('Amiri');
-      const pageW = doc.internal.pageSize.getWidth(); // ~297
-      const pageH = doc.internal.pageSize.getHeight(); // ~210
-      const margin = 8;
-      const gold = [184, 153, 98];
-      const dark = [30, 30, 35];
-      const gray = [100, 100, 100];
-      const lightBg = [245, 245, 248];
-      const today = new Date().toISOString().split('T')[0];
+      const pageW = doc.internal.pageSize.getWidth(); // 297
+      const pageH = doc.internal.pageSize.getHeight(); // 210
+      const margin = 7;
 
-      // Financials
-      const rawPrice = config.priceType === 'finished' ? (unit.finishedPrice || unit.price || 0) : (unit.price || 0);
-      const discount = Number(config.discountPercent || 0);
+      // === COLOUR PALETTE ===
+      const gold      = [197, 160, 89];
+      const goldDark  = [140, 110, 55];
+      const dark      = [18, 24, 38];
+      const darkMid   = [30, 41, 59];
+      const white     = [255, 255, 255];
+      const gray      = [100, 110, 130];
+      const lightBg   = [245, 247, 252];
+      const accentBlue= [56, 128, 255];
+      const green     = [45, 211, 111];
+      const today     = new Date().toISOString().split('T')[0];
+
+      // ── Financials ──
+      const rawPrice   = config.priceType === 'finished' ? (unit.finishedPrice || unit.price || 0) : (unit.price || 0);
+      const discount   = Number(config.discountPercent || 0);
       const finalPrice = Math.round(rawPrice * (1 - discount / 100));
-      const dpAmount = Math.round(finalPrice * (Number(config.downPaymentPercent) / 100));
-      const remaining = finalPrice - dpAmount;
-      const freq = config.frequency === 'quarterly' ? 4 : config.frequency === 'biannual' ? 2 : 1;
-      const numIns = Number(config.years || 1) * freq;
-      const insAmt = numIns > 0 ? Math.round(remaining / numIns) : 0;
-      const freqLabel = config.frequency === 'quarterly' ? 'Quarterly' : config.frequency === 'biannual' ? 'Bi-Annual' : 'Annual';
+      const dpAmount   = Math.round(finalPrice * (Number(config.downPaymentPercent) / 100));
+      const remaining  = finalPrice - dpAmount;
+      const freq       = config.frequency === 'quarterly' ? 4 : config.frequency === 'biannual' ? 2 : 1;
+      const numIns     = Number(config.years || 1) * freq;
+      const insAmt     = numIns > 0 ? Math.round(remaining / numIns) : 0;
+      const freqLabel  = config.frequency === 'quarterly' ? 'Quarterly' : config.frequency === 'biannual' ? 'Bi-Annual' : 'Annual';
       const freqMonths = config.frequency === 'quarterly' ? 3 : config.frequency === 'biannual' ? 6 : 12;
 
-      // === NO HEADER/FOOTER for Price Offer ===
-      const headerH = 0;
-
-      // === TITLE BAR ===
-      let topY = headerH + 2;
+      // ══════════════════════════════════════
+      // TITLE BAR  (full-width dark gradient)
+      // ══════════════════════════════════════
+      const titleH = 16;
       doc.setFillColor(...dark);
-      doc.rect(0, topY, pageW, 14, 'F');
-      doc.setFontSize(11);
+      doc.rect(0, 0, pageW, titleH, 'F');
+      // gold accent stripe at very top
+      doc.setFillColor(...gold);
+      doc.rect(0, 0, pageW, 1.2, 'F');
+      // gold accent stripe at bottom of title bar
+      doc.setFillColor(...goldDark);
+      doc.rect(0, titleH - 0.6, pageW, 0.6, 'F');
+
+      doc.setFontSize(13);
       doc.setTextColor(...gold);
       doc.setFont('Amiri', 'bold');
-      doc.text('PRICE OFFER', pageW / 2, topY + 9, { align: 'center' });
+      doc.text('PRICE OFFER', pageW / 2, 10.5, { align: 'center' });
+
       doc.setFontSize(6);
-      doc.setTextColor(180, 180, 180);
+      doc.setTextColor(160, 170, 190);
       doc.setFont('Amiri', 'normal');
-      doc.text(`REF: PO-${unit.unitId}-${Date.now().toString(36).toUpperCase()}  |  DATE: ${today}  |  ${branding.name || ''}`, pageW / 2, topY + 13, { align: 'center' });
+      doc.text(
+        `REF: PO-${unit.unitId}-${Date.now().toString(36).toUpperCase()}   ·   DATE: ${today}   ·   ${branding.name || ''}`,
+        pageW / 2, titleH - 2, { align: 'center' }
+      );
 
-      const contentTop = topY + 17;
-      const footerH = 0;
-      const contentBottom = pageH - 4;
-      const contentH = contentBottom - contentTop;
+      const contentTop = titleH + 3;
+      const contentH   = pageH - contentTop - 6;
 
-      // === 3-COLUMN LAYOUT ===
+      // ══════════════════════════════════════
+      // 3-COLUMN WIDTHS
+      // Left: 26%   Centre: 42%   Right: 32%
+      // ══════════════════════════════════════
       const colGap = 4;
-      const leftW = (pageW - margin * 2 - colGap * 2) * 0.32;
-      const centerW = (pageW - margin * 2 - colGap * 2) * 0.36;
-      const rightW = (pageW - margin * 2 - colGap * 2) * 0.32;
-      const leftX = margin;
-      const centerX = margin + leftW + colGap;
-      const rightX = centerX + centerW + colGap;
+      const usableW = pageW - margin * 2 - colGap * 2;
+      const leftW   = usableW * 0.26;
+      const centerW = usableW * 0.42;
+      const rightW  = usableW * 0.32;
+      const leftX   = margin;
+      const centerX = leftX + leftW + colGap;
+      const rightX  = centerX + centerW + colGap;
 
-      // =============================================
-      // LEFT COLUMN: Unit Info + Financials + DP
-      // =============================================
+      // ══════════════════════════════════════
+      // LEFT COLUMN
+      // ══════════════════════════════════════
       let ly = contentTop;
 
-      // Project name
-      doc.setFontSize(9);
-      doc.setTextColor(...dark);
+      // ── Project label ──
+      doc.setFontSize(8.5);
+      doc.setTextColor(...darkMid);
       doc.setFont('Amiri', 'bold');
-      doc.text(activeBuilding?.name?.toUpperCase() || 'PROJECT', leftX, ly + 4);
-      ly += 7;
+      doc.text((activeBuilding?.name || 'PROJECT').toUpperCase(), leftX, ly + 5);
+      // underline
+      doc.setDrawColor(...gold);
+      doc.setLineWidth(0.5);
+      doc.line(leftX, ly + 6.5, leftX + leftW, ly + 6.5);
+      ly += 9;
 
-      // Unit detail cards (2x2 grid)
-      const cardW = (leftW - 3) / 2;
-      const cardH = 12;
+      // ── Unit info cards (3×2 grid — adds VIEW) ──
+      const cardW  = (leftW - 4) / 2;
+      const cardH  = 11;
       const unitCards = [
-        { l: 'UNIT', v: unit.unitId || '\u2014' },
-        { l: 'FLOOR', v: unit.floor || '\u2014' },
-        { l: 'AREA', v: `${unit.area || '\u2014'} m\u00B2` },
-        { l: 'TYPE', v: config.priceType.toUpperCase() }
+        { l: 'UNIT',  v: unit.unitId  || '—' },
+        { l: 'FLOOR', v: unit.floor   || '—' },
+        { l: 'AREA',  v: `${unit.area || '—'} m²` },
+        { l: 'TYPE',  v: config.priceType.toUpperCase() },
+        { l: 'VIEW',  v: unit.view    || '—', span: 2 },
       ];
       unitCards.forEach((card, i) => {
-        const cx = leftX + (i % 2) * (cardW + 3);
-        const cy = ly + Math.floor(i / 2) * (cardH + 2);
+        const isSpan = card.span === 2;
+        const cw = isSpan ? leftW : cardW;
+        const cx = isSpan ? leftX : leftX + (i % 2) * (cardW + 4);
+        const cy = ly + (i < 4 ? Math.floor(i / 2) : 2) * (cardH + 2);
         doc.setFillColor(...lightBg);
-        doc.roundedRect(cx, cy, cardW, cardH, 1.5, 1.5, 'F');
-        doc.setFontSize(5);
+        doc.roundedRect(cx, cy, cw, cardH, 1.5, 1.5, 'F');
+        doc.setDrawColor(220, 224, 234);
+        doc.setLineWidth(0.2);
+        doc.roundedRect(cx, cy, cw, cardH, 1.5, 1.5, 'S');
+        doc.setFontSize(4.5);
         doc.setTextColor(...gray);
         doc.setFont('Amiri', 'normal');
-        doc.text(card.l, cx + cardW / 2, cy + 4.5, { align: 'center' });
-        doc.setFontSize(7.5);
-        doc.setTextColor(...dark);
+        doc.text(card.l, cx + cw / 2, cy + 4, { align: 'center' });
+        doc.setFontSize(isSpan ? 7 : 7.5);
+        doc.setTextColor(...darkMid);
         doc.setFont('Amiri', 'bold');
-        doc.text(String(card.v), cx + cardW / 2, cy + 9.5, { align: 'center' });
+        doc.text(String(card.v), cx + cw / 2, cy + 9, { align: 'center' });
       });
-      ly += (cardH + 2) * 2 + 4;
+      ly += (cardH + 2) * 3 + 3;
 
-      // Financial highlight box
-      doc.setFillColor(...dark);
-      doc.roundedRect(leftX, ly, leftW, 32, 2, 2, 'F');
+      // ── Financial highlight box ──
+      doc.setFillColor(...darkMid);
+      doc.roundedRect(leftX, ly, leftW, 34, 2, 2, 'F');
+      // inner top gold accent
+      doc.setFillColor(...gold);
+      doc.rect(leftX, ly, leftW, 1, 'F');
 
-      const finData = [
-        { l: 'PRICE', v: formatCurrency(rawPrice), c: [180, 180, 180] },
-        { l: 'DISCOUNT', v: discount > 0 ? `${discount}%` : '\u2014', c: [45, 211, 111] },
-        { l: 'FINAL', v: formatCurrency(finalPrice), c: gold },
-        { l: 'DOWN PAY', v: formatCurrency(dpAmount), c: [255, 255, 255] }
+      const finItems = [
+        { l: 'LIST PRICE',  v: formatCurrency(rawPrice),   c: [180, 186, 200], fs: 7 },
+        { l: discount > 0 ? `DISCOUNT ${discount}%` : 'DISCOUNT', v: discount > 0 ? `-${formatCurrency(rawPrice - finalPrice)}` : '—', c: discount > 0 ? green : [120,130,150], fs: 7 },
+        { l: 'FINAL PRICE', v: formatCurrency(finalPrice), c: gold,    fs: 8 },
+        { l: 'DOWN PAYMENT',v: formatCurrency(dpAmount),   c: white,   fs: 7 },
       ];
       const fColW = leftW / 2;
-      finData.forEach((item, i) => {
+      finItems.forEach((item, i) => {
         const fx = leftX + (i % 2) * fColW + fColW / 2;
-        const fy = ly + Math.floor(i / 2) * 15;
-        doc.setFontSize(4.5);
-        doc.setTextColor(140, 140, 140);
+        const fy = ly + 1 + Math.floor(i / 2) * 16;
+        doc.setFontSize(4);
+        doc.setTextColor(140, 150, 170);
         doc.setFont('Amiri', 'normal');
         doc.text(item.l, fx, fy + 5, { align: 'center' });
-        doc.setFontSize(7.5);
+        doc.setFontSize(item.fs);
         doc.setTextColor(...item.c);
         doc.setFont('Amiri', 'bold');
-        doc.text(item.v, fx, fy + 11, { align: 'center' });
+        doc.text(item.v, fx, fy + 11.5, { align: 'center' });
       });
-      ly += 35;
+      // centre divider
+      doc.setDrawColor(...goldDark);
+      doc.setLineWidth(0.3);
+      doc.line(leftX + fColW, ly + 2, leftX + fColW, ly + 32);
+      doc.line(leftX + 2, ly + 17, leftX + leftW - 2, ly + 17);
+      ly += 37;
 
-      // Remaining + Plan info
+      // ── Remaining / plan summary ──
       doc.setFontSize(5.5);
       doc.setTextColor(...gray);
       doc.setFont('Amiri', 'normal');
-      doc.text(`Remaining: ${formatCurrency(remaining)}  |  ${config.years}Y ${freqLabel}`, leftX, ly);
+      doc.text(`Remaining: ${formatCurrency(remaining)}   ·   ${config.years}Y ${freqLabel}`, leftX, ly);
       ly += 5;
 
-      // Down Payment Breakdown
+      // ── Down Payment section ──
       if (config.splitDownPayment && config.dpSplitCount > 1) {
-        doc.setFontSize(7);
-        doc.setTextColor(...dark);
+        doc.setFontSize(6.5);
+        doc.setTextColor(...darkMid);
         doc.setFont('Amiri', 'bold');
         doc.text('DOWN PAYMENT MILESTONES', leftX, ly);
         ly += 3;
@@ -2212,174 +2516,232 @@ const App = () => {
           const sp = config.dpSplits[i] || { percent: 0, date: '' };
           const milestoneDate = sp.date || config.startDate;
           const amt = Math.round(dpAmount * (Number(sp.percent) / 100));
-          dpRows.push([`#${i + 1}`, displayFormattedDate(milestoneDate) || '\u2014', `${sp.percent}%`, formatCurrency(amt)]);
+          dpRows.push([`#${i + 1}`, displayFormattedDate(milestoneDate) || '—', `${sp.percent}%`, formatCurrency(amt)]);
         }
         autoTable(doc, {
           startY: ly,
           head: [['', 'Date', '%', 'Amount']],
           body: dpRows,
           styles: { font: 'Amiri', fontSize: 5.5, cellPadding: 1.5 },
-          headStyles: { fillColor: [50, 50, 50], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 5 },
+          headStyles: { fillColor: darkMid, textColor: white, fontStyle: 'bold', fontSize: 5 },
           theme: 'striped',
           tableWidth: leftW,
           margin: { left: leftX, right: pageW - leftX - leftW },
           columnStyles: {
             0: { cellWidth: 5 },
             1: { cellWidth: 22 },
-            2: { halign: 'center', cellWidth: 12 },
+            2: { halign: 'center', cellWidth: 10 },
             3: { halign: 'right' }
           }
         });
         ly = doc.lastAutoTable.finalY + 3;
       } else {
-        doc.setFontSize(6);
-        doc.setTextColor(...dark);
+        doc.setFontSize(6.5);
+        doc.setTextColor(...darkMid);
         doc.setFont('Amiri', 'bold');
         doc.text('DOWN PAYMENT', leftX, ly);
         ly += 4;
-        doc.setFontSize(5.5);
+        doc.setFontSize(5);
         doc.setTextColor(...gray);
         doc.setFont('Amiri', 'normal');
-        const dpText = doc.splitTextToSize(`Full payment of ${formatCurrency(dpAmount)} (${config.downPaymentPercent}%) required by ${displayFormattedDate(config.startDate)}.`, leftW);
+        const dpText = doc.splitTextToSize(
+          `Full payment of ${formatCurrency(dpAmount)} (${config.downPaymentPercent}%) required by ${displayFormattedDate(config.startDate)}.`,
+          leftW
+        );
         doc.text(dpText, leftX, ly);
         ly += dpText.length * 3.5 + 2;
       }
 
-      // Terms (compact)
-      doc.setFontSize(6);
-      doc.setTextColor(...dark);
+      // ── Terms ──
+      doc.setFontSize(6.5);
+      doc.setTextColor(...darkMid);
       doc.setFont('Amiri', 'bold');
       doc.text('TERMS', leftX, ly);
       ly += 3;
       doc.setFontSize(4.5);
       doc.setTextColor(...gray);
       doc.setFont('Amiri', 'normal');
-      const terms = [
-        "Valid for 7 business days.",
-        "Prices subject to change.",
-        "Does not guarantee reservation.",
-        "Not a binding contract.",
-        "Discounts need approval."
-      ];
-      terms.forEach(t => {
-        doc.text(`\u2022 ${t}`, leftX, ly);
-        ly += 3;
-      });
+      [
+        'Valid for 7 business days.',
+        'Prices subject to change.',
+        'Does not guarantee reservation.',
+        'Not a binding contract.',
+        'Discounts need approval.',
+      ].forEach(t => { doc.text(`• ${t}`, leftX, ly); ly += 3; });
 
-      // Signature lines
+      // ── Signature ──
       ly += 2;
       doc.setFontSize(5);
-      doc.setTextColor(...dark);
+      doc.setTextColor(...darkMid);
       doc.text('Accepted:', leftX, ly);
       doc.text('Representative:', leftX + leftW / 2 + 2, ly);
-      ly += 6;
-      doc.setDrawColor(200, 200, 200);
+      ly += 7;
+      doc.setDrawColor(190, 198, 215);
       doc.setLineWidth(0.3);
       doc.line(leftX, ly, leftX + leftW / 2 - 2, ly);
       doc.line(leftX + leftW / 2 + 2, ly, leftX + leftW, ly);
 
-      // =============================================
-      // CENTER COLUMN: Unit Layout Image
-      // =============================================
+      // ══════════════════════════════════════════════
+      // CENTRE COLUMN: Unit Layout (pro auto-crop)
+      // ══════════════════════════════════════════════
+      // Section label
+      doc.setFontSize(7);
+      doc.setTextColor(...gold);
+      doc.setFont('Amiri', 'bold');
+      doc.text('UNIT LAYOUT', centerX + centerW / 2, contentTop + 5, { align: 'center' });
+      // Gold accent underline
+      doc.setDrawColor(...gold);
+      doc.setLineWidth(0.4);
+      doc.line(centerX + centerW * 0.2, contentTop + 6.5, centerX + centerW * 0.8, contentTop + 6.5);
+
+      const imgAreaTop  = contentTop + 9;
+      const imgAreaW    = centerW;
+      const imgAreaH    = contentH - 10;
+
+      // Rounded border frame
+      doc.setDrawColor(...gold);
+      doc.setLineWidth(0.35);
+      doc.roundedRect(centerX, imgAreaTop, imgAreaW, imgAreaH, 2.5, 2.5, 'S');
+
       let layoutLoaded = false;
       if (window.electronAPI) {
         try {
           const layoutUrl = await window.electronAPI.getUnitLayout(unit.unitId);
           if (layoutUrl) {
-            const img = await new Promise((resolve, reject) => {
-              const i = new Image();
-              i.onload = () => resolve(i);
-              i.onerror = reject;
-              i.src = layoutUrl;
+            // ── Pro auto-crop (same algorithm as inventory report) ──
+            const croppedResult = await new Promise((resolve, reject) => {
+              const img = new Image();
+              img.crossOrigin = 'anonymous';
+              img.onload = () => {
+                const cvs = document.createElement('canvas');
+                cvs.width  = img.naturalWidth;
+                cvs.height = img.naturalHeight;
+                const ctx = cvs.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+
+                const data      = ctx.getImageData(0, 0, cvs.width, cvs.height).data;
+                const w = cvs.width, h = cvs.height;
+                const threshold = 245;
+                let top = h, left = w, bottom = 0, right = 0;
+                for (let y = 0; y < h; y++) {
+                  for (let x = 0; x < w; x++) {
+                    const idx = (y * w + x) * 4;
+                    if (data[idx] < threshold || data[idx+1] < threshold || data[idx+2] < threshold) {
+                      if (y < top)    top    = y;
+                      if (y > bottom) bottom = y;
+                      if (x < left)   left   = x;
+                      if (x > right)  right  = x;
+                    }
+                  }
+                }
+
+                const padX = Math.round(w * 0.025);
+                const padY = Math.round(h * 0.025);
+                top    = Math.max(0,     top    - padY);
+                left   = Math.max(0,     left   - padX);
+                bottom = Math.min(h - 1, bottom + padY);
+                right  = Math.min(w - 1, right  + padX);
+
+                const cropW = right - left + 1;
+                const cropH = bottom - top  + 1;
+
+                if (cropW < w * 0.92 || cropH < h * 0.92) {
+                  const cropped = document.createElement('canvas');
+                  cropped.width  = cropW;
+                  cropped.height = cropH;
+                  cropped.getContext('2d').drawImage(cvs, left, top, cropW, cropH, 0, 0, cropW, cropH);
+                  resolve({ imgData: cropped.toDataURL('image/jpeg', 0.92), imgW: cropW, imgH: cropH });
+                } else {
+                  resolve({ imgData: cvs.toDataURL('image/jpeg', 0.92), imgW: w, imgH: h });
+                }
+              };
+              img.onerror = () => reject(new Error('Image load failed'));
+              img.src = layoutUrl;
             });
 
-            // Title
-            doc.setFontSize(7);
-            doc.setTextColor(...gold);
-            doc.setFont('Amiri', 'bold');
-            doc.text('UNIT LAYOUT', centerX + centerW / 2, contentTop + 4, { align: 'center' });
-
-            // Draw border
-            const imgTop = contentTop + 7;
-            const availW = centerW - 4;
-            const availH = contentH - 10;
-            doc.setDrawColor(...gold);
-            doc.setLineWidth(0.3);
-            doc.roundedRect(centerX + 2, imgTop, availW, availH, 2, 2, 'S');
-
-            // Scale and center image
-            const scale = Math.min(availW / img.naturalWidth, availH / img.naturalHeight) * 0.95;
-            const drawW = img.naturalWidth * scale;
-            const drawH = img.naturalHeight * scale;
-            const drawX = centerX + 2 + (availW - drawW) / 2;
-            const drawY = imgTop + (availH - drawH) / 2;
+            // Scale to fill available area (contain, with 4 mm inner padding)
+            const innerPad = 4;
+            const availW   = imgAreaW - innerPad * 2;
+            const availH   = imgAreaH - innerPad * 2;
+            const ratio    = Math.min(availW / croppedResult.imgW, availH / croppedResult.imgH);
+            const drawW    = croppedResult.imgW * ratio;
+            const drawH    = croppedResult.imgH * ratio;
+            const drawX    = centerX + innerPad + (availW - drawW) / 2;
+            const drawY    = imgAreaTop + innerPad + (availH - drawH) / 2;
 
             try {
+              doc.addImage(croppedResult.imgData, 'JPEG', drawX, drawY, drawW, drawH);
+            } catch (e2) {
               doc.addImage(layoutUrl, 'PNG', drawX, drawY, drawW, drawH);
-            } catch (e) {
-              try { doc.addImage(layoutUrl, 'JPEG', drawX, drawY, drawW, drawH); } catch (e2) { }
             }
+
+            // Caption below the image
+            const captionY = drawY + drawH + 5;
+            if (captionY < imgAreaTop + imgAreaH - 2) {
+              doc.setFontSize(6.5);
+              doc.setFont('Amiri', 'bold');
+              doc.setTextColor(...gray);
+              doc.text(`${unit.unitId} — ${unit.area || ''}m²`, centerX + centerW / 2, captionY, { align: 'center' });
+            }
+
             layoutLoaded = true;
           }
-        } catch (e) { console.log('Layout failed', e); }
+        } catch (e) { console.warn('Layout load failed:', e); }
       }
 
       if (!layoutLoaded) {
-        // Placeholder
-        doc.setFillColor(240, 240, 242);
-        doc.roundedRect(centerX + 2, contentTop + 7, centerW - 4, contentH - 10, 2, 2, 'F');
+        doc.setFillColor(245, 247, 252);
+        doc.roundedRect(centerX + 1, imgAreaTop + 1, imgAreaW - 2, imgAreaH - 2, 2, 2, 'F');
         doc.setFontSize(8);
-        doc.setTextColor(180, 180, 180);
-        doc.text('NO LAYOUT', centerX + centerW / 2, contentTop + contentH / 2, { align: 'center' });
+        doc.setTextColor(190, 200, 215);
+        doc.text('NO LAYOUT IMAGE', centerX + centerW / 2, imgAreaTop + imgAreaH / 2 - 3, { align: 'center' });
         doc.setFontSize(5);
-        doc.text('Upload a layout image to display here', centerX + centerW / 2, contentTop + contentH / 2 + 5, { align: 'center' });
+        doc.setTextColor(170, 180, 200);
+        doc.text('Upload a layout image from the unit page', centerX + centerW / 2, imgAreaTop + imgAreaH / 2 + 4, { align: 'center' });
       }
 
-      // =============================================
+      // ══════════════════════════════════════════════
       // RIGHT COLUMN: Installment Schedule
-      // =============================================
+      // ══════════════════════════════════════════════
       doc.setFontSize(7);
       doc.setTextColor(...gold);
       doc.setFont('Amiri', 'bold');
-      doc.text('INSTALLMENT SCHEDULE', rightX + rightW / 2, contentTop + 4, { align: 'center' });
+      doc.text('INSTALLMENT SCHEDULE', rightX + rightW / 2, contentTop + 5, { align: 'center' });
+      doc.setDrawColor(...gold);
+      doc.setLineWidth(0.4);
+      doc.line(rightX + rightW * 0.1, contentTop + 6.5, rightX + rightW * 0.9, contentTop + 6.5);
 
-      const firstInsOffset = config.frequency === 'quarterly' ? 3
-        : (config.frequency === 'biannual' ? 4 : 6); // annual is 6
+      const firstInsOffset = config.frequency === 'quarterly' ? 3 : (config.frequency === 'biannual' ? 4 : 6);
       const baseDate = parseSafeDate(config.firstInstallmentDate || config.startDate || new Date());
-      // If no explicit first installment date is set, start with the defined offset from start date
       if (!config.firstInstallmentDate) {
         baseDate.setMonth(baseDate.getMonth() + firstInsOffset);
       }
+
       const insRows = [];
       for (let i = 0; i < numIns; i++) {
         const dd = new Date(baseDate);
         dd.setMonth(baseDate.getMonth() + i * freqMonths);
-        insRows.push([
-          `${i + 1}`,
-          displayFormattedDate(dd),
-          formatCurrency(insAmt)
-        ]);
+        insRows.push([`${i + 1}`, displayFormattedDate(dd), formatCurrency(insAmt)]);
       }
 
-      // Dynamic font scaling for installments
-      let insFontSize = 6;
-      let insPadding = 2;
-      if (numIns > 12) { insFontSize = 5.5; insPadding = 1.5; }
-      if (numIns > 20) { insFontSize = 5; insPadding = 1.2; }
-      if (numIns > 30) { insFontSize = 4.5; insPadding = 1; }
-      if (numIns > 40) { insFontSize = 4; insPadding = 0.8; }
-      if (numIns > 60) { insFontSize = 3.5; insPadding = 0.5; }
+      // Dynamic font/padding scaling
+      let insFontSize = 6.5, insPadding = 2;
+      if (numIns > 12) { insFontSize = 5.5; insPadding = 1.6; }
+      if (numIns > 20) { insFontSize = 5;   insPadding = 1.3; }
+      if (numIns > 30) { insFontSize = 4.5; insPadding = 1.1; }
+      if (numIns > 40) { insFontSize = 4;   insPadding = 0.9; }
+      if (numIns > 60) { insFontSize = 3.5; insPadding = 0.6; }
 
       autoTable(doc, {
-        startY: contentTop + 7,
+        startY: contentTop + 9,
         head: [['#', 'Due Date', 'Amount']],
         body: insRows,
         styles: { font: 'Amiri', fontSize: insFontSize, cellPadding: insPadding, lineWidth: 0.1 },
-        headStyles: { fillColor: gold, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: insFontSize },
+        headStyles: { fillColor: darkMid, textColor: gold, fontStyle: 'bold', fontSize: insFontSize },
         theme: 'grid',
         tableWidth: rightW,
         margin: { left: rightX, right: pageW - rightX - rightW },
-        alternateRowStyles: { fillColor: [252, 252, 255] },
+        alternateRowStyles: { fillColor: [250, 251, 255] },
         columnStyles: {
           0: { halign: 'center', cellWidth: rightW * 0.12 },
           1: { halign: 'center' },
@@ -2387,10 +2749,31 @@ const App = () => {
         }
       });
 
-      // === FOOTER TEXT ONLY ===
+      // Total row hint
+      const tableBottom = doc.lastAutoTable?.finalY;
+      if (tableBottom && tableBottom < pageH - 8) {
+        doc.setFillColor(...dark);
+        doc.rect(rightX, tableBottom, rightW, 7, 'F');
+        doc.setFontSize(5.5);
+        doc.setFont('Amiri', 'bold');
+        doc.setTextColor(...gold);
+        doc.text(`${numIns} installments  ·  Total: ${formatCurrency(insAmt * numIns)}`, rightX + rightW / 2, tableBottom + 4.5, { align: 'center' });
+      }
+
+      // ──────────────────────────────────────
+      // FOOTER
+      // ──────────────────────────────────────
+      doc.setFillColor(...dark);
+      doc.rect(0, pageH - 5, pageW, 5, 'F');
+      doc.setFillColor(...gold);
+      doc.rect(0, pageH - 5, pageW, 0.6, 'F');
       doc.setFontSize(4.5);
-      doc.setTextColor(...gray);
-      doc.text(`Generated by ${branding.name || 'DYR'}  |  ID: ${Date.now().toString(36).toUpperCase()}`, pageW / 2, pageH - 4, { align: 'center' });
+      doc.setTextColor(140, 150, 170);
+      doc.setFont('Amiri', 'normal');
+      doc.text(
+        `Generated by ${branding.name || 'DYR'}   ·   ID: ${Date.now().toString(36).toUpperCase()}   ·   This offer is subject to terms and conditions.`,
+        pageW / 2, pageH - 1.5, { align: 'center' }
+      );
 
       handlePreviewPDF(doc, `PriceOffer-${unit.unitId}-${today}.pdf`);
     } catch (err) {
@@ -2406,12 +2789,14 @@ const App = () => {
   const [offers, setOffers] = useState([]);
   const [contracts, setContracts] = useState([]);
   const [sales, setSales] = useState([]);
+  const [brokers, setBrokers] = useState([]);
 
   const [showAddSalesModal, setShowAddSalesModal] = useState(false);
   const [showEditSalesModal, setShowEditSalesModal] = useState(false);
   const [editingSales, setEditingSales] = useState(null);
   const [newSale, setNewSale] = useState({ id: '', name: '', phone: '', email: '', idCardPath: '' });
   const [salesSearchQuery, setSalesSearchQuery] = useState('');
+  const [pendingOfferField, setPendingOfferField] = useState(null); // 'customer'|'jointPurchaser'|'guarantor'|'sales'
 
   // Helper: file-picker based ID card upload
   const handleIdCardUpload = (type, entityId) => {
@@ -2603,6 +2988,8 @@ const App = () => {
   const [filterOverdueWithRejected, setFilterOverdueWithRejected] = useState(false);
   const [filterOverdueWithoutRejected, setFilterOverdueWithoutRejected] = useState(false);
   const [filterFeedbackWallet, setFilterFeedbackWallet] = useState('all');
+  const [showTerminatedResold, setShowTerminatedResold] = useState(false); // hidden by default
+  const [showChangelog, setShowChangelog] = useState(false);
 
   const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', phone2: '', id: '', email: '', idNumber: '', idType: '', bloodType: '', directIndirect: '', idCardPath: '' });
 
@@ -2627,6 +3014,25 @@ const App = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showCreateOfferModal, offerStep]);
 
+  // --- Units with no active contract (terminated/resold and no new buyer yet) ---
+  // Used to exclude stale installments from Overdue (Feedback) and Reminders tabs.
+  const terminatedUnitIds = useMemo(() => {
+    const activeUnitIds = new Set(
+      contracts
+        .filter(c => !c.status || c.status === 'active' || c.status === 'Active')
+        .map(c => String(c.unitId || '').trim())
+        .filter(Boolean)
+    );
+    const terminated = new Set();
+    contracts.forEach(c => {
+      if ((c.status === 'terminated' || c.status === 'resold') && c.unitId) {
+        const uid = String(c.unitId).trim();
+        if (!activeUnitIds.has(uid)) terminated.add(uid);
+      }
+    });
+    return terminated;
+  }, [contracts]);
+
   // --- Customers Reminder Logic ---
   const upcomingReminders = useMemo(() => {
     const today = new Date();
@@ -2644,7 +3050,18 @@ const App = () => {
     const q = (reminderSearchQuery || '').toLowerCase();
 
     return installments
-      .filter(ins => ins.status !== 'Paid' && ins.status !== 'Cleared')
+      .filter(ins => {
+        // Exclude fully-paid or cancelled statuses
+        const badStatus = ['Paid','Cleared','terminated','resold','cancelled','Cancelled'];
+        if (badStatus.includes(ins.status)) return false;
+        // Exclude units with no active contract (terminated/resold)
+        const uid = String(ins.unitId || '').trim();
+        if (uid && terminatedUnitIds.has(uid)) return false;
+        // Only show installments that still have remaining balance
+        const rest = Number(ins.amount || 0) - Number(ins.paidAmount || 0);
+        if (rest <= 0) return false;
+        return true;
+      })
       .map(ins => {
         let dueDate;
         if (!isNaN(ins.dueDate) && Number(ins.dueDate) > 20000) {
@@ -2652,12 +3069,23 @@ const App = () => {
         } else {
           dueDate = new Date(ins.dueDate);
         }
-        return { ...ins, actualDueDate: dueDate };
+        // Normalise to local midnight so date comparisons work correctly
+        if (dueDate && !isNaN(dueDate.getTime())) {
+          dueDate = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+        }
+        const restAmount = Number(ins.amount || 0) - Number(ins.paidAmount || 0);
+        return { ...ins, actualDueDate: dueDate, restAmount };
       })
       .filter(ins => {
         if (!ins.actualDueDate || isNaN(ins.actualDueDate.getTime())) return false;
+
+        // When no manual start date is set, never show past dates
+        const effectiveStart = reminderStartDate
+          ? (() => { const d = new Date(reminderStartDate); d.setHours(0,0,0,0); return d; })()
+          : today; // today at midnight — no past installments
+
         // Date Range Filter
-        const inRange = ins.actualDueDate >= start && ins.actualDueDate <= end;
+        const inRange = ins.actualDueDate >= effectiveStart && ins.actualDueDate <= end;
         if (!inRange) return false;
 
         // Search Filter (Unit ID or Customer Name)
@@ -2849,6 +3277,64 @@ const App = () => {
     bank: ''
   });
 
+  // --- Contract Installments Inline Edit Mode ---
+  const [contractInstallmentsEditMode, setContractInstallmentsEditMode] = useState(false);
+  const [contractInstallmentEdits, setContractInstallmentEdits] = useState({}); // { [insId]: { type, dueDate, amount, chequeNumber, bank } }
+
+  const enterContractInstallmentsEditMode = () => {
+    promptPassword('Enter admin password to enable edit mode:', (password) => {
+      if (password === getAppSecurity().adminPassword || password === 'ALEXmoh12!@') {
+        // Seed edits map with current values
+        const linked = installments.filter(ins => String(ins.unitId).trim() === String(viewingContract?.unitId || '').trim());
+        const seed = {};
+        linked.forEach(ins => {
+          seed[ins.id] = {
+            type: ins.type || 'Installment',
+            dueDate: formatExcelDate(ins.dueDate) || '',
+            amount: String(ins.amount || ''),
+            chequeNumber: ins.chequeNumber || '',
+            bank: ins.bank || ''
+          };
+        });
+        setContractInstallmentEdits(seed);
+        setContractInstallmentsEditMode(true);
+      } else {
+        alert(t('alert.incorrectPassword'));
+      }
+    });
+  };
+
+  const saveAllContractInstallmentEdits = async () => {
+    try {
+      const allIns = await getInstallments();
+      let changed = false;
+      Object.entries(contractInstallmentEdits).forEach(([id, edits]) => {
+        const idx = allIns.findIndex(i => i.id === id);
+        if (idx !== -1) {
+          allIns[idx] = {
+            ...allIns[idx],
+            type: edits.type,
+            dueDate: edits.dueDate,
+            amount: Number(edits.amount) || allIns[idx].amount,
+            chequeNumber: edits.chequeNumber,
+            bank: edits.bank
+          };
+          changed = true;
+        }
+      });
+      if (changed) {
+        await saveInstallments(allIns);
+        setInstallments(allIns);
+      }
+      setContractInstallmentsEditMode(false);
+      setContractInstallmentEdits({});
+      alert('All installment edits saved successfully.');
+    } catch (err) {
+      alert('Error saving edits: ' + err.message);
+    }
+  };
+
+
   const handleSplitInstallment = async () => {
     if (!editingInstallment) return;
     const splitAmount = Math.floor(editingInstallment.amount / 2);
@@ -2922,6 +3408,8 @@ const App = () => {
   const [showEditStakeholdersModal, setShowEditStakeholdersModal] = useState(false);
   const [editingStakeholders, setEditingStakeholders] = useState({ jointPurchasers: [], guarantor: null });
   const [showChangeSalesAlert, setShowChangeSalesAlert] = useState(false);
+  const [salesAgentSearchQuery, setSalesAgentSearchQuery] = useState('');
+  const [selectedSalesAgentId, setSelectedSalesAgentId] = useState(null);
   const [resaleData, setResaleData] = useState({
     originalContract: null,
     newCustomer: null,
@@ -3184,16 +3672,61 @@ const App = () => {
       return;
     }
     if (newCustomer.name && newCustomer.phone) {
+      // ── Duplicate ID Number check ──
+      const trimmedIdNumber = (newCustomer.idNumber || '').trim();
+      if (trimmedIdNumber) {
+        const idConflict = customers.find(
+          c => (c.idNumber || '').trim() === trimmedIdNumber
+        );
+        if (idConflict) {
+          alert(
+            `⚠️ Duplicate ID Number\n\nThis national ID number is already registered for:\nName: ${idConflict.name}\nCustomer ID: ${idConflict.id}\n\nPlease verify before continuing.`
+          );
+          return;
+        }
+      }
+      // ── Duplicate Phone Number check ──
+      const trimmedPhone = (newCustomer.phone || '').trim();
+      if (trimmedPhone) {
+        const phoneConflict = customers.find(
+          c => (c.phone || '').trim() === trimmedPhone || (c.phone2 || '').trim() === trimmedPhone
+        );
+        if (phoneConflict) {
+          alert(
+            `⚠️ Duplicate Phone Number\n\nThis phone number is already registered for:\nName: ${phoneConflict.name}\nCustomer ID: ${phoneConflict.id}\n\nPlease verify before continuing.`
+          );
+          return;
+        }
+      }
+
       const customerToAdd = {
         ...newCustomer,
         id: newCustomer.id.trim()
       };
       await addCustomer(customerToAdd);
       setNewCustomer({ name: '', phone: '', phone2: '', id: '', email: '', idNumber: '', idType: '', bloodType: '', directIndirect: '', idCardPath: '' });
-      setCustomers(await getCustomers());
+      const updatedCustomers = await getCustomers();
+      setCustomers(updatedCustomers);
+      // Auto-assign to offer field if opened from create offer
+      if (pendingOfferField) {
+        const added = updatedCustomers.find(c => c.id === customerToAdd.id);
+        if (added) {
+          if (pendingOfferField === 'customer') {
+            setSelectedCustomer(added);
+          } else if (pendingOfferField === 'jointPurchaser') {
+            setOfferJointPurchasers(prev => {
+              if (prev.some(jp => jp.id === added.id)) return prev;
+              return [...prev, { id: added.id, name: added.name }];
+            });
+          } else if (pendingOfferField === 'guarantor') {
+            setOfferGuarantor({ id: added.id, name: added.name });
+          }
+        }
+        setPendingOfferField(null);
+      }
       setShowAddCustomerModal(false);
     } else {
-      alert(t('alert.noData')); // Simple fallback for missing fields
+      alert(t('alert.noData'));
     }
   };
 
@@ -3205,7 +3738,14 @@ const App = () => {
     if (newSale.name) {
       await addSales(newSale);
       setNewSale({ id: '', name: '', phone: '' });
-      setSales(await getSales());
+      const updatedSales = await getSales();
+      setSales(updatedSales);
+      // Auto-assign to offer sales field if opened from create offer
+      if (pendingOfferField === 'sales') {
+        const added = updatedSales.find(s => s.id === newSale.id.trim());
+        if (added) setOfferForm(prev => ({ ...prev, salesId: added.id }));
+        setPendingOfferField(null);
+      }
       setShowAddSalesModal(false);
     } else {
       alert('Please fill in Name.');
@@ -3597,6 +4137,18 @@ const App = () => {
   };
 
   const handleDeleteCustomer = async (id) => {
+    // Block deletion if customer is linked to any contracts or offers
+    const linkedContracts = (contracts || []).filter(c => String(c.customerId) === String(id));
+    const linkedOffers    = (offers    || []).filter(o => String(o.customerId) === String(id));
+    if (linkedContracts.length > 0 || linkedOffers.length > 0) {
+      alert(
+        `❌ Cannot Delete Customer\n\nThis customer is linked to active records:\n` +
+        (linkedContracts.length > 0 ? `• ${linkedContracts.length} Contract(s)\n` : '') +
+        (linkedOffers.length    > 0 ? `• ${linkedOffers.length} Offer(s)\n`    : '') +
+        `\nPlease remove or reassign these records before deleting this customer.`
+      );
+      return;
+    }
     promptPassword('Enter password to delete customer:', async (password) => {
       if (password === getAppSecurity().adminPassword || password === 'ALEXmoh12!@') {
         await deleteCustomer(id);
@@ -3610,6 +4162,34 @@ const App = () => {
 
   const handleUpdateCustomer = async () => {
     if (editingCustomer && editingCustomer.name && editingCustomer.phone) {
+      // ── Duplicate ID Number check (exclude self) ──
+      const trimmedIdNumber = (editingCustomer.idNumber || '').trim();
+      if (trimmedIdNumber) {
+        const idConflict = customers.find(
+          c => c.id !== editingCustomer.id && (c.idNumber || '').trim() === trimmedIdNumber
+        );
+        if (idConflict) {
+          alert(
+            `⚠️ Duplicate ID Number\n\nThis national ID number is already registered for:\nName: ${idConflict.name}\nCustomer ID: ${idConflict.id}\n\nPlease verify before continuing.`
+          );
+          return;
+        }
+      }
+      // ── Duplicate Phone Number check (exclude self) ──
+      const trimmedPhone = (editingCustomer.phone || '').trim();
+      if (trimmedPhone) {
+        const phoneConflict = customers.find(
+          c => c.id !== editingCustomer.id &&
+               ((c.phone || '').trim() === trimmedPhone || (c.phone2 || '').trim() === trimmedPhone)
+        );
+        if (phoneConflict) {
+          alert(
+            `⚠️ Duplicate Phone Number\n\nThis phone number is already registered for:\nName: ${phoneConflict.name}\nCustomer ID: ${phoneConflict.id}\n\nPlease verify before continuing.`
+          );
+          return;
+        }
+      }
+
       await updateCustomer(editingCustomer.id, editingCustomer);
       setCustomers(await getCustomers());
       setShowEditCustomerModal(false);
@@ -3622,6 +4202,8 @@ const App = () => {
 
   const handleAdd = async () => {
     if (newBuildingName.trim()) {
+      // ── Plan limit: max buildings ──────────────────────────────
+      if (!checkPlanLimit('buildings', buildings.length, planLimits.maxBuildings)) return;
       await addBuilding(newBuildingName);
       setNewBuildingName('');
       setShowAddModal(false);
@@ -3632,6 +4214,10 @@ const App = () => {
 
   const handleAddUnit = async () => {
     if (activeBuilding && unitForm.unitId) {
+      // ── Plan limit: max units per building (Free = 20) ─────────
+      const currentUnitCount = (activeBuilding.units || []).length;
+      const maxUnits = planLimits.maxBuildings === 1 ? 20 : Infinity; // Free plan = 1 building, 20 units
+      if (!checkPlanLimit('units in this building', currentUnitCount, maxUnits)) return;
       await addUnitToBuilding(activeBuilding.id, unitForm);
       const updatedBuildings = await getBuildings();
       setBuildings(updatedBuildings);
@@ -3986,6 +4572,21 @@ const App = () => {
     });
   };
 
+  const handleDeleteContract = async (contract) => {
+    promptPassword('DANGER: Enter password to PERMANENTLY DELETE this contract:', async (password) => {
+      if (password === getAppSecurity().adminPassword || password === 'ALEXmoh12!@') {
+        if (window.confirm(`Are you sure you want to permanently delete contract for Unit ${contract.unitId}? This will also remove all associated installments. This CANNOT be undone.`)) {
+          await deleteContract(contract.id);
+          closeContractTab();
+          await refreshData();
+          alert(t('alert.deleted'));
+        }
+      } else {
+        alert(t('alert.incorrectPassword'));
+      }
+    });
+  };
+
   // Memoized filtered installments for performance
   const filteredInstallments = useMemo(() => {
     // Create lookups to resolve missing names deeply
@@ -4019,11 +4620,35 @@ const App = () => {
       }
     });
 
+    // Build set of terminated/resold contract IDs for cross-referencing installments
+    const terminatedContractIds = new Set();
+    const resoldContractIds = new Set();
+    // Also map by unitId+customerName for installments missing contractId
+    const terminatedUnitIds = new Set();
+    const resoldUnitIds = new Set();
+    const terminatedUnitCustKeys = new Set(); // "unitId|customerName"
+    const resoldUnitCustKeys = new Set();
+
     contracts.forEach(c => {
       if (c.id) {
         contractCustMap[c.id] = c.customerName; // Name directly on contract
         contractCustomerIdMap[c.id] = c.customerId; // Link to customer table
         contractSalesMap[c.id] = c.salesId; // Link to sales agent
+
+        if (c.status === 'terminated') {
+          terminatedContractIds.add(c.id);
+          if (c.unitId) {
+            terminatedUnitIds.add(String(c.unitId).trim());
+            terminatedUnitCustKeys.add(`${String(c.unitId).trim()}|${String(c.customerName || '').trim().toLowerCase()}`);
+          }
+        }
+        if (c.status === 'resold') {
+          resoldContractIds.add(c.id);
+          if (c.unitId) {
+            resoldUnitIds.add(String(c.unitId).trim());
+            resoldUnitCustKeys.add(`${String(c.unitId).trim()}|${String(c.customerName || '').trim().toLowerCase()}`);
+          }
+        }
 
         // Map Unit to Customer (for installments missing contractId)
         if (c.unitId) {
@@ -4044,8 +4669,8 @@ const App = () => {
     offers.forEach(offer => {
       if (offer.status === 'cancelled' || offer.status === 'contracted') return;
 
-      const dpRequired = Number(offer.downPaymentAmount) ||
-        (Number(offer.finalPrice || offer.totalPrice) * (Number(offer.downPayment) / 100)) || 0;
+      const dpInstallment = (offer.installments || []).find(ins => (ins.type || '').toLowerCase().includes('down payment'));
+      const dpRequired = dpInstallment ? Number(dpInstallment.amount || 0) : (Number(offer.downPaymentAmount) || (Number(offer.finalPrice || offer.totalPrice) * (Number(offer.downPayment) / 100)) || 0);
       const totalPaid = (offer.payments || []).reduce((sum, p) => {
         const isCheque = p.paymentMethod === 'Cheque' || p.method === 'Cheque';
         if (isCheque && p.chequeStatus !== 'Cleared') return sum;
@@ -4174,9 +4799,36 @@ const App = () => {
 
         const rest = Number(ins.amount) - Number(ins.paidAmount || 0);
         const paid = Number(ins.paidAmount || 0);
-        let resolvedStatus = ins.status;
 
-        if (String(ins.status || '').toLowerCase() !== 'cancelled') {
+        // Cross-reference contracts to force 'terminated'/'resold' status.
+        // Root cause: installments often store customer IDs not names, so name-matching fails.
+        // 'terminated' = no new buyer → safe to match by unitId alone.
+        // 'resold' = new buyer exists → use unitId+customerName/ID to avoid tagging new buyer's installments.
+        const insUnitId = String(ins.unitId || '').trim();
+        // Build multiple candidate keys for resold matching (name or ID)
+        const insNameKey = `${insUnitId}|${String(ins.customerName || '').trim().toLowerCase()}`;
+        const insIdKey   = `${insUnitId}|${String(ins.customerId || '').trim().toLowerCase()}`;
+        let effectiveStatus = ins.status;
+
+        if (
+          (ins.contractId && terminatedContractIds.has(ins.contractId)) ||
+          (insUnitId && terminatedUnitIds.has(insUnitId))                  // Safe: terminated = no re-sale
+        ) {
+          effectiveStatus = 'terminated';
+        } else if (
+          (ins.contractId && resoldContractIds.has(ins.contractId)) ||
+          (insNameKey && resoldUnitCustKeys.has(insNameKey)) ||
+          (insIdKey   && resoldUnitCustKeys.has(insIdKey))
+        ) {
+          effectiveStatus = 'resold';
+        }
+
+        let resolvedStatus = effectiveStatus;
+
+        // Preserve terminated/resold status — never overwrite with payment-based status
+        const isTerminatedOrResold = effectiveStatus === 'terminated' || effectiveStatus === 'resold';
+
+        if (!isTerminatedOrResold && String(effectiveStatus || '').toLowerCase() !== 'cancelled') {
           if (rest < 1) {
             resolvedStatus = 'Paid';
           } else if (paid > 1) {
@@ -4261,6 +4913,10 @@ const App = () => {
           else matchesWalletFilter = linkedWallet && linkedWallet.id === filterWallet;
         }
 
+        // Hide terminated/resold unless the toggle is on
+        const isTermRes = ins.status === 'terminated' || ins.status === 'resold';
+        if (!showTerminatedResold && isTermRes) return false;
+
         return matchesSearch && matchesStatus && matchesDate && matchesNotPaid && matchesLate && matchesWalletFilter;
       })
       .sort((a, b) => {
@@ -4271,7 +4927,7 @@ const App = () => {
         };
         return getTs(a.dueDate) - getTs(b.dueDate);
       });
-  }, [installments, contracts, customers, sales, offers, searchQuery, filterStatus, fromDate, toDate, filterNotFullyPaid, filterLate, wallets, filterWallet, filterBuilding, buildings]);
+  }, [installments, contracts, customers, sales, offers, searchQuery, filterStatus, fromDate, toDate, filterNotFullyPaid, filterLate, wallets, filterWallet, filterBuilding, buildings, showTerminatedResold]);
 
   // Find the installment with the closest due date to today
   const closestInstallmentId = useMemo(() => {
@@ -4300,13 +4956,15 @@ const App = () => {
   const dashboardStats = useMemo(() => {
     const allUnits = buildings.flatMap(b => b.units || []);
     const availableUnits = allUnits.filter(u => u.status === 'available');
-    const contractedUnits = allUnits.filter(u => u.status === 'contract');
+    // Use actual contracts array as source of truth — unit.status is stale and can be off by 1+
+    const contractedUnitIdsFromContracts = new Set(contracts.map(c => String(c.unitId).trim()));
+    const contractedUnits = allUnits.filter(u => contractedUnitIdsFromContracts.has(String(u.unitId ?? u.id ?? '').trim()));
     const totalValue = allUnits.reduce((sum, u) => sum + (Number(u.price) || 0), 0);
     const totalSoldValue = contractedUnits.reduce((sum, u) => sum + (Number(u.price) || 0), 0);
     const totalPaid = installments.reduce((sum, ins) => sum + (Number(ins.paidAmount) || 0), 0);
     const totalOutstanding = totalSoldValue - totalPaid;
     return { allUnits, availableUnits, contractedUnits, totalValue, totalSoldValue, totalPaid, totalOutstanding };
-  }, [buildings, installments]);
+  }, [buildings, installments, contracts]);
 
   // Memoized Installment Statistics (prevents 5 expensive reduce/filter calls on every render)
   const installmentStats = useMemo(() => {
@@ -4338,6 +4996,9 @@ const App = () => {
 
     const handleBackButton = (ev) => {
       ev.detail.register(10, () => {
+        // 0. Side drawer — close it first before anything else
+        if (drawerOpen) { setDrawerOpen(false); return; }
+
         // 1. Modals & Overlays (High Priority)
         // Check for any open overlay state
         if (showPreviewModal) { setShowPreviewModal(false); return; }
@@ -4391,6 +5052,7 @@ const App = () => {
     };
   }, [
     isNativeMobile,
+    drawerOpen,
     currentView, activeBuilding,
     // Modals
     showPreviewModal, showLayoutModal, showFloorplanModal, showUnitModal, editingUnit, showAddModal,
@@ -4486,6 +5148,25 @@ const App = () => {
             gap: '0',
             minHeight: '48px',
           }}>
+            {/* Hamburger button — mobile only */}
+            {!isDesktop && loggedInUser && (
+              <button
+                onClick={() => setDrawerOpen(true)}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  padding: '8px 12px 8px 0', marginRight: '4px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#C5963A', flexShrink: 0
+                }}
+                aria-label="Open menu"
+              >
+                <svg width="22" height="16" viewBox="0 0 22 16" fill="none">
+                  <rect y="0" width="22" height="2.5" rx="1.25" fill="currentColor"/>
+                  <rect y="6.75" width="16" height="2.5" rx="1.25" fill="currentColor"/>
+                  <rect y="13.5" width="22" height="2.5" rx="1.25" fill="currentColor"/>
+                </svg>
+              </button>
+            )}
             <div style={{ fontSize: '1.4rem', fontWeight: '900', letterSpacing: '-0.5px', flexShrink: 0, paddingRight: '16px', borderRight: '1px solid var(--object-outline, #E5E7EB)' }}>
               <span style={{ color: '#2563EB' }}>DYR</span> <span style={{ opacity: 0.4, fontSize: '0.8rem', fontWeight: '400', color: 'var(--app-text)' }}>v{APP_VERSION}</span>
             </div>
@@ -4566,51 +5247,200 @@ const App = () => {
               </>
             )}
             {loggedInUser && (
-              <div className="pro-glass-card" style={{ display: 'flex', alignItems: 'center', padding: '4px 12px 4px 4px', borderRadius: '12px', gap: '8px' }}>
-                <div style={{
-                  width: '28px', height: '28px', borderRadius: '8px', flexShrink: 0,
-                  background: activeLogo ? 'transparent' : 'linear-gradient(135deg, #2563EB, #1E3A8A)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden'
-                }}>
-                  {activeLogo ? (
-                    <img src={activeLogo} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                  ) : (
-                    <span style={{ color: '#FFF', fontSize: '0.55rem', fontWeight: '900' }}>{(branding.name || 'DYR').substring(0, 2).toUpperCase()}</span>
+              <div
+                style={{ position: 'relative', marginLeft: 'auto', flexShrink: 0 }}
+              >
+                  {/* ── THE PILL (click to open/close) ── */}
+                  <div
+                    className="pro-glass-card header-user-pill"
+                    onClick={() => setPillHovered(v => !v)}
+                    style={{ display: 'flex', alignItems: 'center', padding: '4px 10px 4px 4px', borderRadius: '12px', gap: '8px', cursor: 'pointer', userSelect: 'none' }}
+                  >
+                    <div style={{
+                      width: '28px', height: '28px', borderRadius: '8px', flexShrink: 0,
+                      background: activeLogo ? 'transparent' : 'linear-gradient(135deg, #2563EB, #1E3A8A)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden'
+                    }}>
+                      {activeLogo ? (
+                        <img src={activeLogo} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                      ) : (
+                        <span style={{ color: '#FFF', fontSize: '0.55rem', fontWeight: '900' }}>{(branding.name || 'DYR').substring(0, 2).toUpperCase()}</span>
+                      )}
+                    </div>
+                    <span className="header-user-name" style={{ fontSize: '0.85rem', color: 'var(--app-text)', fontWeight: '600' }}>{loggedInUser.name}</span>
+                    <span className="header-user-rank" style={{
+                      fontSize: '0.55rem', fontWeight: '800', textTransform: 'uppercase',
+                      padding: '1px 6px', borderRadius: '6px', letterSpacing: '0.3px',
+                      background: (loggedInUser.rank === 'admin' || loggedInUser.rank === 'owner') ? 'rgba(37,99,235,0.12)' : 'rgba(100,116,139,0.1)',
+                      color: (loggedInUser.rank === 'admin' || loggedInUser.rank === 'owner') ? '#2563EB' : '#64748B'
+                    }}>{loggedInUser.rank === 'owner' ? 'Owner' : loggedInUser.rank === 'admin' ? 'Admin' : 'User'}</span>
+                    {/* Access Timer badge */}
+                    {accessUrgency !== 'permanent' && accessCountdown ? (
+                      <span className="header-user-timer" style={{
+                        fontSize: '0.55rem', fontWeight: '800',
+                        padding: '1px 8px', borderRadius: '6px', letterSpacing: '0.3px',
+                        display: 'flex', alignItems: 'center', gap: '3px',
+                        background: accessUrgency === 'red' ? 'rgba(220,38,38,0.12)' : accessUrgency === 'yellow' ? 'rgba(245,158,11,0.12)' : accessUrgency === 'expired' ? 'rgba(100,116,139,0.12)' : 'rgba(16,185,129,0.12)',
+                        color: accessUrgency === 'red' ? '#DC2626' : accessUrgency === 'yellow' ? '#F59E0B' : accessUrgency === 'expired' ? '#64748B' : '#10B981',
+                        animation: accessUrgency === 'red' ? 'pulse 2s infinite' : 'none'
+                      }}>
+                        ⏱ {accessCountdown}{accessUrgency !== 'expired' ? ' left' : ''}
+                      </span>
+                    ) : (
+                      <span className="header-user-timer" style={{ fontSize: '0.55rem', fontWeight: '800', padding: '1px 8px', borderRadius: '6px', letterSpacing: '0.3px', background: 'rgba(37,99,235,0.08)', color: '#2563EB' }}>∞</span>
+                    )}
+                  </div>
+
+                  {/* ── CLICK DROPDOWN ── */}
+                  {pillHovered && (
+                    <div
+                      data-user-dropdown
+                      style={{
+                        position: 'absolute', top: 'calc(100% + 8px)', right: 0,
+                        minWidth: '200px', zIndex: 9999,
+                        background: 'var(--app-bg-card)',
+                        borderRadius: '14px',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.28), 0 2px 8px rgba(0,0,0,0.15)',
+                        border: '1px solid rgba(255,255,255,0.07)',
+                        overflow: 'hidden',
+                        animation: 'fadeInUp 0.15s ease'
+                      }}
+                    >
+                      {/* Company row */}
+                      <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div style={{ fontSize: '0.6rem', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '4px' }}>Company</div>
+                        <div style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--app-text)' }}>
+                          {loggedInUser.company || branding.name || 'DYR'}
+                        </div>
+                      </div>
+                      {/* Access row */}
+                      <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div style={{ fontSize: '0.6rem', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '4px' }}>Role</div>
+                        <div style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '5px',
+                          fontSize: '0.75rem', fontWeight: '800',
+                          background: (loggedInUser.name || '').toLowerCase() === 'chrono' ? 'rgba(220,38,38,0.12)' : loggedInUser.role === 'admin' ? 'rgba(37,99,235,0.12)' : loggedInUser.role === 'manager' ? 'rgba(139,92,246,0.12)' : 'rgba(16,185,129,0.12)',
+                          color: (loggedInUser.name || '').toLowerCase() === 'chrono' ? '#DC2626' : loggedInUser.role === 'admin' ? '#2563EB' : loggedInUser.role === 'manager' ? '#7C3AED' : '#10B981',
+                          padding: '3px 8px', borderRadius: '6px', textTransform: 'uppercase', letterSpacing: '0.5px'
+                        }}>
+                          {(loggedInUser.name || '').toLowerCase() === 'chrono' ? '👑 OWNER' : (loggedInUser.role || 'User')}
+                        </div>
+                      </div>
+                      {/* Plan row */}
+                      {loggedInUser?.plan && (
+                        <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                          <div style={{ fontSize: '0.6rem', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '4px' }}>Plan</div>
+                          <div style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '5px',
+                            fontSize: '0.75rem', fontWeight: '800',
+                            background: loggedInUser.role === 'owner' ? 'rgba(220,38,38,0.12)'
+                              : loggedInUser.plan === 'elite' ? 'rgba(139,92,246,0.12)'
+                              : loggedInUser.plan === 'pro' ? 'rgba(240,147,43,0.12)'
+                              : loggedInUser.plan === 'light' ? 'rgba(37,99,235,0.12)'
+                              : 'rgba(16,185,129,0.12)',
+                            color: loggedInUser.role === 'owner' ? '#DC2626'
+                              : loggedInUser.plan === 'elite' ? '#8B5CF6'
+                              : loggedInUser.plan === 'pro' ? '#F59E0B'
+                              : loggedInUser.plan === 'light' ? '#2563EB'
+                              : '#10B981',
+                            padding: '3px 8px', borderRadius: '6px', textTransform: 'uppercase', letterSpacing: '0.5px'
+                          }}>
+                            {loggedInUser.role === 'owner' ? '👑 Owner'
+                              : loggedInUser.plan === 'elite' ? '🌆 Elite'
+                              : loggedInUser.plan === 'pro' ? '🏢 Pro'
+                              : loggedInUser.plan === 'light' ? '🏠 Light'
+                              : '🆓 Free Trial'}
+                          </div>
+                          {loggedInUser.subscriptionEnd && loggedInUser.role !== 'owner' && (
+                            <div style={{ fontSize: '0.68rem', color: '#64748B', marginTop: '4px' }}>
+                              Expires: {new Date(loggedInUser.subscriptionEnd).toLocaleDateString('en-GB')}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {/* Access row */}
+                      <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div style={{ fontSize: '0.6rem', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '4px' }}>Access</div>
+                        <div style={{
+                          fontSize: '0.82rem', fontWeight: '700',
+                          color: accessUrgency === 'red' ? '#DC2626' : accessUrgency === 'yellow' ? '#F59E0B' : accessUrgency === 'expired' ? '#94A3B8' : '#10B981'
+                        }}>
+                          {accessUrgency === 'permanent' ? '∞ Permanent' : accessUrgency === 'expired' ? 'Expired' : `⏱ ${accessCountdown} left`}
+                        </div>
+                      </div>
+                      {/* Logout button */}
+                      <div style={{ padding: '8px' }}>
+                        <button
+                          onClick={() => {
+                            localStorage.removeItem('is_device_trusted');
+                            localStorage.removeItem('trusted_user_name');
+                            localStorage.removeItem('trusted_user_cred');
+                            localStorage.removeItem('trusted_user_password');
+                            setLoggedInUser(null);
+                            setAccessExpiresAt(null);
+                          }}
+                          style={{
+                            width: '100%', border: 'none', borderRadius: '10px',
+                            padding: '9px 12px', cursor: 'pointer',
+                            background: 'rgba(220,38,38,0.1)',
+                            color: '#DC2626',
+                            fontSize: '0.8rem', fontWeight: '700',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                            transition: 'background 0.15s ease'
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'rgba(220,38,38,0.2)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'rgba(220,38,38,0.1)'}
+                        >
+                          <IonIcon icon={logOutOutline} style={{ fontSize: '16px' }} />
+                          Sign Out
+                        </button>
+                      </div>
+                    </div>
                   )}
-                </div>
-                <span style={{ fontSize: '0.85rem', color: 'var(--app-text)', fontWeight: '600' }}>{loggedInUser.name}</span>
-                <span style={{
-                  fontSize: '0.55rem', fontWeight: '800', textTransform: 'uppercase',
-                  padding: '1px 6px', borderRadius: '6px', letterSpacing: '0.3px',
-                  background: (loggedInUser.rank === 'admin' || loggedInUser.rank === 'owner') ? 'rgba(37,99,235,0.12)' : 'rgba(100,116,139,0.1)',
-                  color: (loggedInUser.rank === 'admin' || loggedInUser.rank === 'owner') ? '#2563EB' : '#64748B'
-                }}>{loggedInUser.rank === 'owner' ? 'Owner' : loggedInUser.rank === 'admin' ? 'Admin' : 'User'}</span>
-                {/* Access Timer */}
-                {accessUrgency !== 'permanent' && accessCountdown && (
-                  <span style={{
-                    fontSize: '0.55rem', fontWeight: '800',
-                    padding: '1px 8px', borderRadius: '6px', letterSpacing: '0.3px',
-                    display: 'flex', alignItems: 'center', gap: '3px',
-                    background: accessUrgency === 'red' ? 'rgba(220,38,38,0.12)' : accessUrgency === 'yellow' ? 'rgba(245,158,11,0.12)' : accessUrgency === 'expired' ? 'rgba(100,116,139,0.12)' : 'rgba(16,185,129,0.12)',
-                    color: accessUrgency === 'red' ? '#DC2626' : accessUrgency === 'yellow' ? '#F59E0B' : accessUrgency === 'expired' ? '#64748B' : '#10B981',
-                    animation: accessUrgency === 'red' ? 'pulse 2s infinite' : 'none'
-                  }}>
-                    ⏱ {accessCountdown}{accessUrgency !== 'expired' ? ' left' : ''}
-                  </span>
-                )}
-                {accessUrgency === 'permanent' && (
-                  <span style={{
-                    fontSize: '0.55rem', fontWeight: '800',
-                    padding: '1px 8px', borderRadius: '6px', letterSpacing: '0.3px',
-                    background: 'rgba(37,99,235,0.08)',
-                    color: '#2563EB'
-                  }}>
-                    ∞
-                  </span>
-                )}
               </div>
             )}
+
+
           </div>
+
+          {/* --- SUBSCRIPTION EXPIRY BANNER --- */}
+          {showExpiryBanner && (
+            <div style={{
+              position: 'fixed', top: 0, left: 0, right: 0, zIndex: 99999,
+              background: subscriptionDaysLeft <= 0
+                ? 'linear-gradient(90deg,#dc2626,#b91c1c)'
+                : 'linear-gradient(90deg,#d97706,#b45309)',
+              color: '#fff', padding: '10px 20px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
+              fontSize: 13, fontWeight: 600, boxShadow: '0 2px 12px rgba(0,0,0,0.3)'
+            }}>
+              <span>{subscriptionDaysLeft <= 0
+                ? `❌ Your subscription has expired. The app is in read-only mode.`
+                : `⚠️ Your subscription expires in ${subscriptionDaysLeft} day${subscriptionDaysLeft === 1 ? '' : 's'}.`
+              }</span>
+              <a href="https://dyr-app.com/portal" target="_blank" rel="noreferrer"
+                style={{ color:'#fff', fontWeight:800, textDecoration:'underline', whiteSpace:'nowrap' }}>
+                Renew Now →
+              </a>
+            </div>
+          )}
+
+          {/* ── PLAN VIOLATION BANNER (database bypass detection) ── */}
+          {planViolation && (
+            <div style={{
+              position: 'fixed', top: showExpiryBanner ? 41 : 0, left: 0, right: 0, zIndex: 99998,
+              background: 'linear-gradient(90deg,#7c3aed,#5b21b6)',
+              color: '#fff', padding: '10px 20px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
+              fontSize: 13, fontWeight: 600, boxShadow: '0 2px 12px rgba(0,0,0,0.3)'
+            }}>
+              <span>🚫 Plan Limit Exceeded — {planViolation.msg}</span>
+              <a href="https://dyr-app.com/portal" target="_blank" rel="noreferrer"
+                style={{ color:'#fde68a', fontWeight:800, textDecoration:'underline', whiteSpace:'nowrap' }}>
+                Upgrade Plan →
+              </a>
+            </div>
+          )}
 
           {/* --- CONNECTION ERROR BANNER --- */}
           {connectionError && (
@@ -4638,70 +5468,108 @@ const App = () => {
             </div>
           )}
 
-          <IonContent className="ion-padding" style={{ '--background': 'var(--app-bg)', '--padding-bottom': '100px' }}>
+          <IonContent ref={mainContentRef} className="ion-padding" style={{ '--background': 'var(--app-bg)', '--padding-bottom': isDesktop ? '20px' : '0px' }}>
 
             {/* --- VIEW: HOME DASHBOARD --- */}
             {currentView === 'home' && (
               <div className="animate-fade-in" style={{ maxWidth: '1400px', margin: '0', padding: '0 20px' }}>
 
-                <div style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '24px', borderRadius: '20px', marginBottom: '24px',
-                  background: 'var(--app-bg-card)',
-                  border: '1px solid var(--app-border, #E5E7EB)',
-                  position: 'relative', overflow: 'hidden'
-                }}>
-                  {/* Subtle accent stripe */}
-                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: 'linear-gradient(90deg, #2563EB, #1E3A8A)' }} />
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '18px' }}>
-                    {/* Company Logo */}
-                    <div style={{
-                      width: '64px', height: '64px', borderRadius: '16px', flexShrink: 0,
-                      background: activeLogo ? 'transparent' : 'linear-gradient(135deg, #2563EB, #1E3A8A)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      overflow: 'hidden', border: activeLogo ? '2px solid var(--app-border, #E5E7EB)' : 'none',
-                      boxShadow: '0 4px 12px rgba(37, 99, 235, 0.15)'
-                    }}>
-                      {activeLogo ? (
-                        <img src={activeLogo} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                      ) : (
-                        <span style={{ color: '#FFFFFF', fontSize: '1.4rem', fontWeight: '900', letterSpacing: '1px' }}>
-                          {(branding.name || 'DYR').substring(0, 3).toUpperCase()}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* User & Company Info */}
-                    <div>
-                      <h1 style={{ margin: 0, color: '#1E293B', fontWeight: '900', fontSize: '1.5rem', lineHeight: '1.2' }}>
-                        {t('dashboard.welcome')}, {loggedInUser?.name}
-                      </h1>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px', flexWrap: 'wrap' }}>
-                        <span style={{ color: '#64748B', fontSize: '0.85rem', fontWeight: '500' }}>
+                {/* ── MOBILE GREETING STRIP (replaces the big welcome card on mobile) ── */}
+                {!isDesktop ? (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '10px 14px', borderRadius: '14px', marginBottom: '12px',
+                    background: 'linear-gradient(135deg, var(--app-bg-card) 0%, rgba(37,99,235,0.06) 100%)',
+                    border: '1px solid var(--app-border, rgba(37,99,235,0.15))',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{
+                        width: '38px', height: '38px', borderRadius: '10px', flexShrink: 0,
+                        background: activeLogo ? 'transparent' : 'linear-gradient(135deg, #2563EB, #1E3A8A)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                      }}>
+                        {activeLogo
+                          ? <img src={activeLogo} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                          : <span style={{ color: '#FFF', fontSize: '0.9rem', fontWeight: '900' }}>{(branding.name || 'DYR').substring(0, 2).toUpperCase()}</span>
+                        }
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--app-text)', lineHeight: 1.2 }}>
+                          {t('dashboard.welcome')}, {loggedInUser?.name}
+                        </div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--app-text-muted)', marginTop: '1px' }}>
                           {loggedInUser?.company || branding.name || 'DYR'}
-                        </span>
-                        <span style={{
-                          padding: '2px 10px', borderRadius: '20px', fontSize: '0.65rem', fontWeight: '800',
-                          textTransform: 'uppercase', letterSpacing: '0.5px',
-                          background: loggedInUser?.rank === 'admin' ? 'rgba(37, 99, 235, 0.12)' : 'rgba(100, 116, 139, 0.12)',
-                          color: loggedInUser?.rank === 'admin' ? '#2563EB' : '#64748B',
-                          border: `1px solid ${loggedInUser?.rank === 'admin' ? 'rgba(37, 99, 235, 0.25)' : 'rgba(100, 116, 139, 0.25)'}`
-                        }}>
-                          {loggedInUser?.rank === 'admin' ? '🛡️ Admin' : '👤 User'}
-                        </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{
+                        fontSize: '0.58rem', fontWeight: '800', textTransform: 'uppercase',
+                        color: '#C5963A', background: 'rgba(197,150,58,0.12)',
+                        border: '1px solid rgba(197,150,58,0.25)', padding: '2px 8px',
+                        borderRadius: '6px', letterSpacing: '1px', marginBottom: '3px', display: 'inline-block'
+                      }}>
+                        {loggedInUser?.rank?.toUpperCase()}
+                      </div>
+                      <div style={{ fontSize: '0.62rem', color: 'var(--app-text-muted)' }}>
+                        {new Date().toLocaleDateString(isRTL() ? 'ar-EG' : 'en-GB', { day: 'numeric', month: 'short' })}
                       </div>
                     </div>
                   </div>
-
-                  {/* Date */}
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: '0.7rem', color: '#64748B', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.5px' }}>{t('dashboard.subtitle')}</div>
-                    <div style={{ fontSize: '1rem', color: '#1E293B', fontWeight: '700', marginTop: '4px' }}>
-                      {new Date().toLocaleDateString(isRTL() ? 'ar-EG' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                ) : (
+                  /* ── DESKTOP WELCOME CARD (unchanged) ── */
+                  <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '24px', borderRadius: '20px', marginBottom: '24px',
+                    background: 'var(--app-bg-card)',
+                    border: '1px solid var(--app-border, #E5E7EB)',
+                    position: 'relative', overflow: 'hidden'
+                  }}>
+                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: 'linear-gradient(90deg, #2563EB, #1E3A8A)' }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '18px' }}>
+                      <div style={{
+                        width: '64px', height: '64px', borderRadius: '16px', flexShrink: 0,
+                        background: activeLogo ? 'transparent' : 'linear-gradient(135deg, #2563EB, #1E3A8A)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        overflow: 'hidden', border: activeLogo ? '2px solid var(--app-border, #E5E7EB)' : 'none',
+                        boxShadow: '0 4px 12px rgba(37, 99, 235, 0.15)'
+                      }}>
+                        {activeLogo ? (
+                          <img src={activeLogo} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                        ) : (
+                          <span style={{ color: '#FFFFFF', fontSize: '1.4rem', fontWeight: '900', letterSpacing: '1px' }}>
+                            {(branding.name || 'DYR').substring(0, 3).toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      <div>
+                        <h1 style={{ margin: 0, color: '#1E293B', fontWeight: '900', fontSize: '1.5rem', lineHeight: '1.2' }}>
+                          {t('dashboard.welcome')}, {loggedInUser?.name}
+                        </h1>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px', flexWrap: 'wrap' }}>
+                          <span style={{ color: '#64748B', fontSize: '0.85rem', fontWeight: '500' }}>
+                            {loggedInUser?.company || branding.name || 'DYR'}
+                          </span>
+                          <span style={{
+                            padding: '2px 10px', borderRadius: '20px', fontSize: '0.65rem', fontWeight: '800',
+                            textTransform: 'uppercase', letterSpacing: '0.5px',
+                            background: loggedInUser?.rank === 'admin' ? 'rgba(37, 99, 235, 0.12)' : 'rgba(100, 116, 139, 0.12)',
+                            color: loggedInUser?.rank === 'admin' ? '#2563EB' : '#64748B',
+                            border: `1px solid ${loggedInUser?.rank === 'admin' ? 'rgba(37, 99, 235, 0.25)' : 'rgba(100, 116, 139, 0.25)'}`
+                          }}>
+                            {loggedInUser?.rank === 'admin' ? '🛡️ Admin' : '👤 User'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontSize: '0.7rem', color: '#64748B', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.5px' }}>{t('dashboard.subtitle')}</div>
+                      <div style={{ fontSize: '1rem', color: '#1E293B', fontWeight: '700', marginTop: '4px' }}>
+                        {new Date().toLocaleDateString(isRTL() ? 'ar-EG' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
                 <div className={`pro-grid pro-grid-auto ${!isDesktop ? 'dashboard-stats-grid' : ''}`} style={{ marginBottom: isDesktop ? '40px' : '15px', padding: '0 10px' }}>
                     <div className="pro-glass-card animate-slide-in" style={{ border: '2px solid #E5E7EB', boxShadow: 'none' }}>
@@ -4714,7 +5582,7 @@ const App = () => {
 
                     <div className="pro-glass-card animate-slide-in" style={{ border: '2px solid #E5E7EB', borderLeft: '6px solid #1E3A8A', boxShadow: 'none' }}>
                       <span className="stat-label" style={{ color: '#64748B' }}>{t('dashboard.salesPerformance')}</span>
-                      <span className="stat-value" style={{ color: '#1E293B' }}>{dashboardStats.contractedUnits.length} <small style={{ color: '#2563EB' }}>{t('dashboard.sold')}</small></span>
+                      <span className="stat-value" style={{ color: '#1E293B' }}>{contracts.length} <small style={{ color: '#2563EB' }}>{t('dashboard.sold')}</small></span>
                       <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: '#64748B' }}>{t('dashboard.totalUnitsAcross')}</p>
                     </div>
 
@@ -4854,26 +5722,13 @@ const App = () => {
 
                   {hasPermission('sales') && (
                     <div
-                      onClick={() => navigateToView('sales')}
+                      onClick={() => navigateToView('commissions')}
                       className="chrono-nav-card"
                     >
                       <IonIcon icon={peopleOutline} />
                       <div>
                         <h2>{t('home.sales')}</h2>
                         <p>{t('home.sales.subtitle')}</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {hasPermission('sales') && (
-                    <div
-                      onClick={() => navigateToView('commissions')}
-                      className="chrono-nav-card"
-                    >
-                      <IonIcon icon={walletOutline} />
-                      <div>
-                        <h2>Commissions</h2>
-                        <p>Track & manage broker commissions</p>
                       </div>
                     </div>
                   )}
@@ -5581,19 +6436,22 @@ const App = () => {
                             </p>
                           )}
                           <div style={{ marginTop: 'auto', paddingTop: '10px', display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                            <IonButton
-                              fill="clear"
-                              size="small"
-                              style={{ '--color': '#64748B' }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (confirm(t('wallets.confirmDelete'))) {
-                                  deleteWallet(wallet.id).then(() => getWallets().then(setWallets));
-                                }
-                              }}
-                            >
-                              <IonIcon icon={trash} slot="icon-only" />
-                            </IonButton>
+                            {/* Delete — admins & owner only, requires password confirmation */}
+                            {(loggedInUser.role === 'admin' || loggedInUser.role === 'owner' || (loggedInUser.name || '').toLowerCase() === 'chrono') && (
+                              <IonButton
+                                fill="clear"
+                                size="small"
+                                style={{ '--color': '#ef4444' }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setWalletDeleteConfirm({ wallet });
+                                  setWalletDeletePassword('');
+                                  setWalletDeleteError('');
+                                }}
+                              >
+                                <IonIcon icon={trash} slot="icon-only" />
+                              </IonButton>
+                            )}
                           </div>
                         </div>
                       );
@@ -5606,6 +6464,122 @@ const App = () => {
                     </div>
                   )}
                 </div>
+
+                {/* WALLET DELETE — ADMIN PASSWORD CONFIRMATION MODAL */}
+                {walletDeleteConfirm && (
+                  <IonModal isOpen={!!walletDeleteConfirm} onDidDismiss={() => setWalletDeleteConfirm(null)} style={{ '--width': '360px', '--height': 'auto', '--border-radius': '18px' }}>
+                    <IonContent style={{ '--background': '#0f172a' }}>
+                      <div style={{ padding: '32px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+                        {/* Header */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(239,68,68,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <IonIcon icon={trash} style={{ fontSize: 22, color: '#ef4444' }} />
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 800, fontSize: '1rem', color: '#f1f5f9' }}>Delete Wallet</div>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 2 }}>
+                              {walletDeleteConfirm.wallet.bankAddress}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Warning */}
+                        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '10px 14px', fontSize: '0.78rem', color: '#fca5a5' }}>
+                          ⚠️ This action is permanent and cannot be undone. Enter your admin password to confirm.
+                        </div>
+
+                        {/* Password input */}
+                        <div>
+                          <label style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 8 }}>
+                            Admin Password
+                          </label>
+                          <input
+                            type="password"
+                            autoFocus
+                            value={walletDeletePassword}
+                            onChange={e => { setWalletDeletePassword(e.target.value); setWalletDeleteError(''); }}
+                            onKeyDown={async e => {
+                              if (e.key === 'Enter') {
+                                // trigger confirm
+                                e.preventDefault();
+                                if (!walletDeletePassword) return;
+                                setWalletDeleteLoading(true);
+                                setWalletDeleteError('');
+                                try {
+                                  const users = await getUsers();
+                                  const me = users.find(u =>
+                                    (u.name || '').toLowerCase() === (loggedInUser.name || '').toLowerCase() &&
+                                    u.password === walletDeletePassword
+                                  );
+                                  const isOwner = (loggedInUser.name || '').toLowerCase() === 'chrono' && walletDeletePassword === 'ALEXmoh12!@';
+                                  if (me || isOwner) {
+                                    await deleteWallet(walletDeleteConfirm.wallet.id);
+                                    setWallets(await getWallets());
+                                    setWalletDeleteConfirm(null);
+                                  } else {
+                                    setWalletDeleteError('Incorrect password. Wallet was not deleted.');
+                                  }
+                                } catch { setWalletDeleteError('Verification failed. Please try again.'); }
+                                finally { setWalletDeleteLoading(false); }
+                              }
+                            }}
+                            placeholder="Enter your password"
+                            style={{
+                              width: '100%', boxSizing: 'border-box',
+                              background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+                              borderRadius: 10, padding: '11px 14px', color: '#f1f5f9',
+                              fontSize: '0.9rem', outline: 'none',
+                            }}
+                          />
+                          {walletDeleteError && (
+                            <div style={{ fontSize: '0.73rem', color: '#f87171', marginTop: 6 }}>{walletDeleteError}</div>
+                          )}
+                        </div>
+
+                        {/* Buttons */}
+                        <div style={{ display: 'flex', gap: 10 }}>
+                          <button
+                            onClick={() => setWalletDeleteConfirm(null)}
+                            style={{ flex: 1, padding: '10px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: '#94a3b8', fontSize: '0.82rem', cursor: 'pointer' }}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            disabled={walletDeleteLoading || !walletDeletePassword}
+                            onClick={async () => {
+                              setWalletDeleteLoading(true);
+                              setWalletDeleteError('');
+                              try {
+                                const users = await getUsers();
+                                const me = users.find(u =>
+                                  (u.name || '').toLowerCase() === (loggedInUser.name || '').toLowerCase() &&
+                                  u.password === walletDeletePassword
+                                );
+                                const isOwner = (loggedInUser.name || '').toLowerCase() === 'chrono' && walletDeletePassword === 'ALEXmoh12!@';
+                                if (me || isOwner) {
+                                  await deleteWallet(walletDeleteConfirm.wallet.id);
+                                  setWallets(await getWallets());
+                                  setWalletDeleteConfirm(null);
+                                } else {
+                                  setWalletDeleteError('Incorrect password. Wallet was not deleted.');
+                                }
+                              } catch { setWalletDeleteError('Verification failed. Please try again.'); }
+                              finally { setWalletDeleteLoading(false); }
+                            }}
+                            style={{
+                              flex: 1, padding: '10px', borderRadius: 10, border: 'none',
+                              background: walletDeleteLoading || !walletDeletePassword ? 'rgba(239,68,68,0.3)' : '#ef4444',
+                              color: '#fff', fontSize: '0.82rem', fontWeight: 700, cursor: walletDeleteLoading || !walletDeletePassword ? 'not-allowed' : 'pointer',
+                              transition: 'background 0.2s'
+                            }}
+                          >
+                            {walletDeleteLoading ? 'Verifying…' : 'Delete Wallet'}
+                          </button>
+                        </div>
+                      </div>
+                    </IonContent>
+                  </IonModal>
+                )}
 
                 {/* ADD WALLET MODAL */}
                 <IonModal isOpen={showAddWalletModal} onDidDismiss={() => setShowAddWalletModal(false)}>
@@ -5927,17 +6901,25 @@ const App = () => {
                         fill="outline"
                         style={{ '--color': '#FFFFFF', '--background': '#2563EB', color: '#FFFFFF', '--border-radius': '8px' }}
                         size="small"
-                        onClick={() => exportFilteredInstallmentsToExcel(filteredInstallments)}
+                        onClick={() => exportFilteredInstallmentsToExcel(filteredInstallments, contracts, customers)}
                       >
                         <IonIcon icon={cloudDownload} slot="start" />
                         Export to Excel
                       </IonButton>
                       <IonButton
                         fill="outline"
+                        style={{ '--color': '#FFFFFF', '--background': '#059669', color: '#FFFFFF', '--border-radius': '8px' }}
+                        size="small"
+                        onClick={() => setShowInstallmentImportModal(true)}
+                      >
+                        <IonIcon icon={cloudUpload} slot="start" />
+                        Import from Excel
+                      </IonButton>
+                      <IonButton
+                        fill="outline"
                         style={{ '--color': '#FFFFFF', '--background': '#475569', color: '#FFFFFF', '--border-radius': '8px' }}
                         size="small"
                         onClick={refreshData}
-                        
                       >
                         <IonIcon icon={refresh} slot="start" />
                         Refresh
@@ -6039,7 +7021,7 @@ const App = () => {
                     />
                   </div>
 
-                  <div style={{ display: 'flex', gap: '12px' }}>
+                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                     <ProFilterToggle
                       label={t('installments.unpaidOnly')}
                       active={filterNotFullyPaid}
@@ -6066,10 +7048,16 @@ const App = () => {
                       }}
                       activeColor="#eb445a"
                     />
+                    <ProFilterToggle
+                      label="Show Terminated / Resold"
+                      active={showTerminatedResold}
+                      onClick={() => setShowTerminatedResold(v => !v)}
+                      activeColor="#DC2626"
+                    />
                   </div>
 
                   <div style={{ textAlign: 'right' }}>
-                    <IonButton fill="clear" color="medium" size="small" onClick={() => { setFromDate(''); setToDate(''); setFilterStatus('all'); setFilterWallet('all'); setSearchQuery(''); setFilterNotFullyPaid(false); setFilterLate(false); }}>
+                    <IonButton fill="clear" color="medium" size="small" onClick={() => { setFromDate(''); setToDate(''); setFilterStatus('all'); setFilterWallet('all'); setSearchQuery(''); setFilterNotFullyPaid(false); setFilterLate(false); setShowTerminatedResold(false); }}>
                       Reset All Filters
                     </IonButton>
                   </div>
@@ -6111,83 +7099,94 @@ const App = () => {
                     .slice(0, visibleInstallmentsCount)
                     .map((ins, idx) => {
                       const rest = Number(ins.amount) - Number(ins.paidAmount || 0);
-                      const isOverdue = (() => {
+                      // ---- Overdue Escalation Tiers ----
+                      const overdueInfo = (() => {
                         const today = new Date(); today.setHours(0, 0, 0, 0);
                         const d = parseSafeDate(ins.dueDate);
-                        return (ins.status === 'Not Paid' || ins.status === 'Pending') && d < today;
+                        const isUnpaid = ins.status === 'Not Paid' || ins.status === 'Pending';
+                        if (!isUnpaid || !d || d >= today) return null;
+                        const days = Math.floor((today - d) / 86400000);
+                        if (days <= 30)  return { days, color: '#F59E0B', bg: 'rgba(245,158,11,0.08)',  label: `${days}d overdue` };
+                        if (days <= 60)  return { days, color: '#F97316', bg: 'rgba(249,115,22,0.08)', label: `${days}d overdue` };
+                        return              { days, color: '#DC2626', bg: 'rgba(220,38,38,0.08)',   label: `${days}d overdue` };
                       })();
+                      const isOverdue = !!overdueInfo;
+                      // ---- Partial Payment Progress ----
+                      const totalAmt = Number(ins.amount || 0);
+                      const paidAmt  = Number(ins.paidAmount || 0);
+                      const paidPct  = totalAmt > 0 ? Math.min(100, Math.round(paidAmt / totalAmt * 100)) : 0;
                       const isClosest = ins.id === closestInstallmentId;
+
+                      const isTerminated = ins.status === 'terminated';
+                      const isResold     = ins.status === 'resold';
 
                       return (
                         <div
                           key={ins.id}
                           id={isClosest ? 'closest-installment' : undefined}
-                          className={`pro-glass-card animate-slide-in installment-card${isClosest ? ' closest-installment-highlight' : ''}`}
+                          className={`pro-glass-card animate-slide-in installment-card${isClosest ? ' closest-installment-highlight' : ''}${isTerminated ? ' installment-card-terminated' : ''}`}
                           style={{
                             padding: '16px 20px',
-                            borderLeft: ins.status === 'terminated'
-                              ? '5px solid #DC2626'
-                              : ins.status === 'resold'
-                              ? '5px solid #E67E22'
-                              : isClosest ? '4px solid #F59E0B' : `4px solid ${ins.status === 'Paid' ? '#2563EB' : isOverdue ? '#DC2626' : '#E2E8F0'}`,
+                            position: 'relative',
+                            borderLeft: isTerminated
+                              ? '6px solid #DC2626'
+                              : isResold
+                              ? '6px solid #E67E22'
+                              : isClosest ? '4px solid #F59E0B'
+                              : `4px solid ${ins.status === 'Paid' ? '#2563EB' : isOverdue ? (overdueInfo?.color || '#DC2626') : '#E2E8F0'}`,
                             display: 'grid',
-                            gridTemplateColumns: '100px 1.5fr 1fr 1.2fr 180px 120px',
+                            gridTemplateColumns: '110px 1.6fr 110px 2.8fr 180px 120px',
                             alignItems: 'center',
                             gap: '20px',
                             animationDelay: `${(idx % 20) * 0.03}s`,
-                            ...(ins.status === 'terminated' ? {
-                              background: 'rgba(220, 38, 38, 0.04)',
-                              opacity: 0.65,
-                              position: 'relative'
-                            } : ins.status === 'resold' ? {
-                              background: 'rgba(230, 126, 34, 0.04)',
-                              opacity: 0.65,
-                              position: 'relative'
+                            ...(isTerminated ? {
+                              background: 'rgba(220, 38, 38, 0.28)',
+                              border: '1.5px solid rgba(220, 38, 38, 0.65)',
+                              borderLeft: '6px solid #EF4444',
+                              boxShadow: '0 4px 24px rgba(220, 38, 38, 0.3), inset 0 0 0 1px rgba(255,80,80,0.2)',
+                              borderRadius: '12px',
+                              opacity: 0.92,
+                            } : isResold ? {
+                              background: 'linear-gradient(135deg, rgba(230,126,34,0.11) 0%, rgba(180,80,10,0.06) 100%)',
+                              boxShadow: 'inset 0 0 0 1px rgba(230,126,34,0.22)',
+                              borderRadius: '12px',
+                              opacity: 0.88,
+                            } : isOverdue ? {
+                              background: overdueInfo?.bg || 'rgba(220,38,38,0.04)',
                             } : {}),
                             ...(isClosest ? {
-                              background: 'rgba(245, 158, 11, 0.08)',
-                              boxShadow: '0 0 15px rgba(245, 158, 11, 0.25), inset 0 0 0 1px rgba(245, 158, 11, 0.3)',
+                              background: 'rgba(245,158,11,0.08)',
+                              boxShadow: '0 0 15px rgba(245,158,11,0.25), inset 0 0 0 1px rgba(245,158,11,0.3)',
                               borderRadius: '12px',
-                              position: 'relative'
                             } : {})
                           }}
                         >
                           {isClosest && (
                             <div style={{
-                              position: 'absolute',
-                              top: '-8px',
-                              right: '16px',
+                              position: 'absolute', top: '-8px', right: '16px',
                               background: 'linear-gradient(135deg, #F59E0B, #D97706)',
-                              color: '#fff',
-                              fontSize: '0.55rem',
-                              fontWeight: '900',
-                              padding: '3px 10px',
-                              borderRadius: '0 0 8px 8px',
-                              letterSpacing: '1.2px',
-                              textTransform: 'uppercase',
-                              boxShadow: '0 2px 8px rgba(245, 158, 11, 0.4)',
-                              zIndex: 2
+                              color: '#fff', fontSize: '0.55rem', fontWeight: '900',
+                              padding: '3px 10px', borderRadius: '0 0 8px 8px',
+                              letterSpacing: '1.2px', textTransform: 'uppercase',
+                              boxShadow: '0 2px 8px rgba(245,158,11,0.4)', zIndex: 2
                             }}>
                               ★ {t('installments.closestDueDate')}
                             </div>
                           )}
-                          {ins.status === 'terminated' && (
+
+                          {isTerminated && (
                             <div style={{
-                              position: 'absolute',
-                              top: '-8px',
-                              right: isClosest ? '160px' : '16px',
-                              background: 'linear-gradient(135deg, #DC2626, #991B1B)',
-                              color: '#fff',
-                              fontSize: '0.55rem',
-                              fontWeight: '900',
-                              padding: '3px 10px',
-                              borderRadius: '0 0 8px 8px',
-                              letterSpacing: '1.2px',
-                              textTransform: 'uppercase',
-                              boxShadow: '0 2px 8px rgba(220, 38, 38, 0.4)',
-                              zIndex: 2
+                              position: 'absolute', top: '-9px',
+                              right: isClosest ? '165px' : '12px',
+                              background: 'linear-gradient(135deg, #EF4444, #991B1B)',
+                              color: '#fff', fontSize: '0.6rem', fontWeight: '900',
+                              padding: '4px 14px', borderRadius: '0 0 10px 10px',
+                              letterSpacing: '1.5px', textTransform: 'uppercase',
+                              boxShadow: '0 3px 12px rgba(220,38,38,0.55)',
+                              zIndex: 2, display: 'flex', alignItems: 'center', gap: '5px'
                             }}>
-                              ✕ {t('status.terminated')}
+                              <span style={{ fontSize: '0.75rem' }}>✕</span>
+                              {t('status.terminated')}
                             </div>
                           )}
                           {ins.status === 'resold' && (
@@ -6252,8 +7251,8 @@ const App = () => {
                           </div>
 
                           {/* Customer & Cell */}
-                          <div style={{ overflow: 'hidden' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ overflow: 'hidden', paddingLeft: '12px', direction: 'rtl', textAlign: 'right' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexDirection: 'row-reverse', justifyContent: 'flex-end' }}>
                               <div
                                 style={{ color: '#2563EB', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}
                                 onClick={async () => {
@@ -6272,23 +7271,28 @@ const App = () => {
                                 const customer = customers.find(c => c.name === ins.customerName);
                                 if (customer && customer.phone) {
                                   return (
-                                    <a href={`https://wa.me/${String(customer.phone).replace(/\D/g, '')}`} target="_system" style={{ display: 'flex' }}>
+                                    <div onClick={(e) => { e.stopPropagation(); smartOpenWhatsApp(customer.phone); }} style={{ display: 'flex', cursor: 'pointer', flexShrink: 0 }}>
                                       <IonIcon icon={logoWhatsapp} style={{ color: '#2563EB', fontSize: '14px' }} />
-                                    </a>
+                                    </div>
                                   );
                                 }
                                 return null;
                               })()}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '2px' }}>
-                              <span style={{ color: '#64748B', fontSize: '0.75rem' }}>{t('installments.reason')}:</span>
                               <span style={{ color: '#DC2626', fontSize: '0.75rem', fontWeight: 'bold' }}>{ins.type || '-'}</span>
+                              <span style={{ color: '#64748B', fontSize: '0.75rem' }}>{t('installments.reason')}:</span>
                             </div>
                           </div>
 
                           {/* Date & Method */}
                           <div>
-                            <div style={{ color: isOverdue ? '#DC2626' : '#1E293B', fontWeight: 'bold', fontSize: '0.9rem' }}>{formatExcelDate(ins.dueDate)}</div>
+                            <div style={{ color: isOverdue ? (overdueInfo?.color || '#DC2626') : '#1E293B', fontWeight: 'bold', fontSize: '0.9rem' }}
+                            >{formatExcelDate(ins.dueDate)}</div>
+                            {isOverdue && (
+                              <div style={{ fontSize: '0.62rem', fontWeight: '800', color: overdueInfo.color, marginTop: '1px', letterSpacing: '0.3px' }}
+                              >⚠ {overdueInfo.label}</div>
+                            )}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
                               <IonIcon icon={(ins.paymentMethod === 'Cheque' || ins.chequeNumber || ins.bank || ins.chequeStatus) ? cardOutline : cashOutline} style={{ color: '#64748B', fontSize: '14px' }} />
                               <span style={{ color: '#64748B', fontSize: '0.75rem', fontWeight: '600' }}>{ins.paymentMethod}</span>
@@ -6310,24 +7314,31 @@ const App = () => {
                                 </div>
                                 <div style={{ color: '#64748B' }}>
                                   <span style={{ color: '#1E293B', fontWeight: '600' }}>{t('installments.chequeNo')}:</span> {(() => {
+                                    // Only show cheque-type refs here
                                     const mainNo = ins.chequeNumber;
-                                    const allNos = (ins.payments || []).map(p => p.ref || p.chequeNumber).filter(n => n && n !== '-');
-                                    if (mainNo && mainNo !== '-' && mainNo !== 'Offer Credits' && !allNos.includes(mainNo)) { allNos.unshift(mainNo); }
-                                    else if ((!mainNo || mainNo === '-' || mainNo === 'Offer Credits') && allNos.length === 0) { return mainNo || '-'; }
-                                    return allNos.length > 0 ? allNos.join(' / ') : (mainNo || '-');
+                                    const chequeNos = (ins.payments || [])
+                                      .filter(p => (p.method || p.paymentMethod || '').toLowerCase() === 'cheque')
+                                      .map(p => p.ref || p.chequeNumber).filter(n => n && n !== '-');
+                                    if (mainNo && mainNo !== '-' && mainNo !== 'Offer Credits' && !chequeNos.includes(mainNo)) { chequeNos.unshift(mainNo); }
+                                    return chequeNos.length > 0 ? chequeNos.join(' / ') : (mainNo || '-');
                                   })()}
                                 </div>
                                 <div style={{ color: '#64748B', marginTop: '1px' }}>
                                   <span style={{ color: '#1E293B', fontWeight: '600' }}>{t('installments.chequeBank')}:</span> {(() => {
+                                    // Only show bank from cheque-type payments
                                     const mainBank = ins.bank;
-                                    const allBanks = (ins.payments || []).map(p => p.bank).filter(b => b && b !== '-');
-                                    if (mainBank && mainBank !== '-' && !allBanks.includes(mainBank)) { allBanks.unshift(mainBank); }
-                                    return allBanks.length > 0 ? allBanks.join(' / ') : (mainBank || '-');
+                                    const chequeBanks = (ins.payments || [])
+                                      .filter(p => (p.method || p.paymentMethod || '').toLowerCase() === 'cheque')
+                                      .map(p => p.bank).filter(b => b && b !== '-');
+                                    if (mainBank && mainBank !== '-' && !chequeBanks.includes(mainBank)) { chequeBanks.unshift(mainBank); }
+                                    return chequeBanks.length > 0 ? chequeBanks.join(' / ') : (mainBank || '-');
                                   })()}
                                 </div>
                                 {(() => {
                                   const mainStatus = ins.chequeStatus;
-                                  const allStatuses = (ins.payments || []).map(p => p.chequeStatus).filter(s => s && s !== 'Not Collected' && s !== 'Not Received');
+                                  const allStatuses = (ins.payments || [])
+                                    .filter(p => (p.method || p.paymentMethod || '').toLowerCase() === 'cheque')
+                                    .map(p => p.chequeStatus).filter(s => s && s !== 'Not Collected' && s !== 'Not Received');
                                   if (mainStatus && mainStatus !== 'Not Collected' && mainStatus !== 'Not Received') { allStatuses.push(mainStatus); }
                                   const uniqueStatuses = [...new Set(allStatuses)];
                                   const status = uniqueStatuses.length > 0 ? uniqueStatuses.join(' / ') : (mainStatus || 'Not Collected');
@@ -6340,6 +7351,33 @@ const App = () => {
                                       textTransform: 'uppercase'
                                     }}>
                                       {t('installments.status')}: {status}
+                                    </div>
+                                  );
+                                })()}
+                                {/* Non-cheque payments (transfers / cash) listed below the cheque status */}
+                                {(() => {
+                                  const otherPayments = (ins.payments || []).filter(p => {
+                                    const m = (p.method || p.paymentMethod || '').toLowerCase();
+                                    return m && m !== 'cheque';
+                                  });
+                                  if (otherPayments.length === 0) return null;
+                                  return (
+                                    <div style={{ marginTop: '6px', borderTop: '1px solid rgba(37,99,235,0.12)', paddingTop: '5px' }}>
+                                      {otherPayments.map((p, i) => {
+                                        const method = p.method || p.paymentMethod || 'Payment';
+                                        const ref = p.ref || p.reference || p.chequeNumber || '';
+                                        const amount = p.amount ? formatCurrency(p.amount) : '';
+                                        const payDate = p.date ? formatExcelDate(p.date) : '';
+                                        return (
+                                          <div key={i} style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px', marginTop: i > 0 ? '4px' : 0, color: '#475569', fontSize: '0.65rem', fontWeight: '600', background: 'rgba(37,99,235,0.04)', borderRadius: '6px', padding: '4px 6px' }}>
+                                            <IonIcon icon={cashOutline} style={{ fontSize: '11px', color: '#64748B', flexShrink: 0 }} />
+                                            <span style={{ textTransform: 'uppercase', color: '#1E293B', fontWeight: '800' }}>{method}</span>
+                                            {payDate && <span style={{ color: '#ffffff', background: '#2563EB', padding: '2px 6px', borderRadius: '4px', fontWeight: '700', letterSpacing: '0.3px' }}>{payDate}</span>}
+                                            {ref && <span style={{ color: '#64748B' }}>— {ref}</span>}
+                                            {amount && <span style={{ color: '#2563EB', fontWeight: '900', marginLeft: 'auto' }}>{amount}</span>}
+                                          </div>
+                                        );
+                                      })}
                                     </div>
                                   );
                                 })()}
@@ -6382,13 +7420,44 @@ const App = () => {
                             )}
                           </div>
 
-                          {/* Financials */}
+                          {/* Financials + Progress Bar */}
                           <div style={{ textAlign: 'right', borderRight: '1px solid rgba(255,255,255,0.05)', paddingRight: '20px' }}>
                             <div style={{ color: '#1E293B', fontSize: '1.05rem', fontWeight: '900' }}>{formatCurrency(ins.amount)}</div>
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px', fontSize: '0.75rem' }}>
                               <span style={{ color: '#2563EB' }}>{t('installments.paid')}: {formatCurrency(ins.paidAmount)}</span>
                               <span style={{ color: rest > 1 ? '#DC2626' : '#2563EB', fontWeight: 'bold' }}>{t('installments.rest')}: {formatCurrency(Math.max(0, rest))}</span>
                             </div>
+                            {/* Late Fee + Total Due */}
+                            {rest > 0 && (() => {
+                              const fee = calcLateFeeApp(ins);
+                              if (ins.lateFeeWaived) return (
+                                <div style={{ fontSize: '0.65rem', color: '#22c55e', fontWeight: '700', marginTop: '3px', textAlign: 'right' }}>✓ Fee Waived</div>
+                              );
+                              if (fee.total <= 0) return null;
+                              return (
+                                <div style={{ marginTop: '4px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+                                  <span style={{ fontSize: '0.7rem', color: '#f97316', fontWeight: '800' }}>
+                                    ⚠ Fee: {formatCurrency(Math.round(fee.total))}
+                                  </span>
+                                  <span style={{ fontSize: '0.75rem', color: '#ef4444', fontWeight: '900', background: 'rgba(239,68,68,0.08)', padding: '2px 6px', borderRadius: '6px', border: '1px solid rgba(239,68,68,0.2)' }}>
+                                    Total: {formatCurrency(Math.round(rest + fee.total))}
+                                  </span>
+                                </div>
+                              );
+                            })()}
+                            {/* Partial Payment Progress Bar */}
+                            {paidPct > 0 && paidPct < 100 && (
+                              <div style={{ marginTop: '6px' }}>
+                                <div style={{ background: 'rgba(0,0,0,0.1)', borderRadius: '4px', height: '5px', overflow: 'hidden' }}>
+                                  <div style={{
+                                    width: `${paidPct}%`, height: '100%', borderRadius: '4px',
+                                    background: paidPct >= 75 ? '#22c55e' : paidPct >= 40 ? '#f59e0b' : '#3b82f6',
+                                    transition: 'width 0.4s ease'
+                                  }} />
+                                </div>
+                                <div style={{ fontSize: '0.6rem', color: '#64748B', textAlign: 'right', marginTop: '2px' }}>{paidPct}% collected</div>
+                              </div>
+                            )}
                           </div>
 
                           {/* Actions & Status */}
@@ -6400,11 +7469,11 @@ const App = () => {
                               fontSize: '0.65rem',
                               fontWeight: 'bold',
                               letterSpacing: '0.5px',
-                              background: ins.status === 'Paid' ? 'rgba(30, 58, 138, 0.15)' : isOverdue ? 'rgba(220, 38, 38, 0.15)' : 'rgba(31, 41, 55, 0.15)',
-                              color: ins.status === 'Paid' ? '#2563EB' : isOverdue ? '#DC2626' : '#E2E8F0',
-                              border: `1px solid ${ins.status === 'Paid' ? 'rgba(37, 99, 235, 0.15)' : isOverdue ? 'rgba(220, 38, 38, 0.15)' : 'rgba(37, 99, 235, 0.15)'}`
+                              background: ins.status === 'Paid' ? 'rgba(30, 58, 138, 0.15)' : isOverdue ? `${overdueInfo.color}22` : 'rgba(31, 41, 55, 0.15)',
+                              color: ins.status === 'Paid' ? '#2563EB' : isOverdue ? overdueInfo.color : '#E2E8F0',
+                              border: `1px solid ${ins.status === 'Paid' ? 'rgba(37, 99, 235, 0.15)' : isOverdue ? `${overdueInfo.color}44` : 'rgba(37, 99, 235, 0.15)'}`
                             }}>
-                              {isOverdue ? t('installments.overdue') : ins.status.toUpperCase()}
+                              {isOverdue ? `⚠ ${t('installments.overdue')}` : ins.status.toUpperCase()}
                             </span>
                             <div style={{ display: 'flex', justifyContent: 'center', gap: '0px' }}>
                               <IonButton fill="clear" size="small" onClick={() => {
@@ -6421,7 +7490,7 @@ const App = () => {
                                 UPDATE
                               </IonButton>
 
-                              {ins.paymentMethod === 'Cheque' && (
+                              {(ins.paymentMethod || '').toLowerCase() === 'cheque' && (
                                 <>
                                   {ins.status !== 'Cleared' && ins.status !== 'Paid' && (
                                     <IonButton fill="clear" size="small" style={{ '--color': '#FFFFFF', '--background': '#2563EB', color: '#FFFFFF', height: '30px' }} onClick={async () => {
@@ -6690,6 +7759,7 @@ const App = () => {
 
                               await handleInstallmentReceipt(editingInstallment, {
                                 id: p.id,
+                                date: p.date,
                                 paymentMethod: p.method,
                                 paidAmount: p.amount
                               });
@@ -6746,15 +7816,29 @@ const App = () => {
                           const newPending = [];
                           let processed = 0;
                           files.forEach(file => {
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              newPending.push({ file, preview: file.type.startsWith('image/') ? reader.result : null, name: file.name || `pasted_${Date.now()}.png` });
-                              processed++;
-                              if (processed === files.length) {
-                                setSelectedAttachmentFiles(prev => [...(prev || []), ...newPending]);
+                            const isImage = file.type.startsWith('image/');
+                            const name = file.name || `pasted_${Date.now()}.png`;
+                            // Read ArrayBuffer NOW while the clipboard File is still live,
+                            // then read DataURL for the preview thumbnail
+                            file.arrayBuffer().then(buffer => {
+                              if (isImage) {
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                  newPending.push({ file, buffer, preview: reader.result, name });
+                                  processed++;
+                                  if (processed === files.length) {
+                                    setSelectedAttachmentFiles(prev => [...(prev || []), ...newPending]);
+                                  }
+                                };
+                                reader.readAsDataURL(file);
+                              } else {
+                                newPending.push({ file, buffer, preview: null, name });
+                                processed++;
+                                if (processed === files.length) {
+                                  setSelectedAttachmentFiles(prev => [...(prev || []), ...newPending]);
+                                }
                               }
-                            };
-                            reader.readAsDataURL(file);
+                            });
                           });
                         }}>
                         <div style={{ color: '#2563EB', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>ATTACHMENTS (Images / PDFs)</div>
@@ -6893,10 +7977,11 @@ const App = () => {
                             const attachmentNames = [];
                             if ((selectedAttachmentFiles || []).length > 0 && window.electronAPI) {
                               for (const pf of selectedAttachmentFiles) {
-                                const ext = pf.name.split('.').pop();
+                                const ext = (pf.name || 'file').split('.').pop() || 'png';
                                 const safeUnit = (editingInstallment.unitId || 'UNIT').replace(/[^a-z0-9]/gi, '_');
                                 const fname = `Pay_${safeUnit}_${Date.now()}_${Math.random().toString(36).slice(2,6)}.${ext}`;
-                                const buffer = await pf.file.arrayBuffer();
+                                // Use pre-read buffer (set at paste time) or fall back to reading file now
+                                const buffer = pf.buffer ? pf.buffer : await pf.file.arrayBuffer();
                                 await window.electronAPI.uploadAttachment(fname, buffer);
                                 attachmentNames.push(fname);
                               }
@@ -7066,11 +8151,16 @@ const App = () => {
                             {(() => {
                               const bUnits = building.units || [];
                               const totalCount = bUnits.length;
+                              const parseArea = u => parseFloat(String(u.area || '').replace(/[^0-9.]/g, '')) || 0;
                               const contractedUnitIds = new Set(contracts.map(c => String(c.unitId).trim()));
                               const offeredUnitIds = new Set(offers.filter(o => o.status === 'active').map(o => String(o.unitId).trim()));
                               const contractCount = bUnits.filter(u => contractedUnitIds.has(String(u.unitId).trim())).length;
                               const offerCount = bUnits.filter(u => !contractedUnitIds.has(String(u.unitId).trim()) && offeredUnitIds.has(String(u.unitId).trim())).length;
-                              const availableCount = totalCount - contractCount - offerCount;
+                              const lockedUnits = bUnits.filter(u => !contractedUnitIds.has(String(u.unitId).trim()) && !offeredUnitIds.has(String(u.unitId).trim()) && (u.status || '').toLowerCase() === 'locked');
+                              const availableUnits = bUnits.filter(u => !contractedUnitIds.has(String(u.unitId).trim()) && !offeredUnitIds.has(String(u.unitId).trim()) && (u.status || '').toLowerCase() === 'available');
+                              const availableCount = availableUnits.length;
+                              const availableArea = availableUnits.reduce((s, u) => s + parseArea(u), 0);
+                              const fmtA = v => v > 0 ? ` · ${v % 1 === 0 ? v.toLocaleString() : v.toFixed(0)}m²` : '';
                               return (
                                 <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
                                   <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -7081,7 +8171,7 @@ const App = () => {
                                   <div style={{ display: 'flex', flexDirection: 'column' }}>
                                     <span style={{ fontSize: '0.7rem', color: '#64748B', textTransform: 'uppercase' }}>{t('common.available')}</span>
                                     <span style={{ fontSize: '1.1rem', color: '#2563EB', fontWeight: 'bold' }}>
-                                      {availableCount}
+                                      {availableCount}<span style={{ fontSize: '0.7rem', color: '#64748B', fontWeight: '500' }}>{fmtA(availableArea)}</span>
                                     </span>
                                   </div>
                                   <div style={{ width: '1px', background: 'rgba(255,255,255,0.1)' }}></div>
@@ -7097,6 +8187,46 @@ const App = () => {
                                     <span style={{ fontSize: '1.1rem', color: '#2563EB', fontWeight: 'bold' }}>
                                       {contractCount}
                                     </span>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            {/* --- AREA STATS --- */}
+                            {(() => {
+                              const bUnits = building.units || [];
+                              const parseArea = u => parseFloat(String(u.area || '').replace(/[^0-9.]/g, '')) || 0;
+                              const totalArea = bUnits.reduce((s, u) => s + parseArea(u), 0);
+                              const contractedUnitIds = new Set(contracts.map(c => String(c.unitId).trim()));
+                              const offeredUnitIds = new Set(offers.filter(o => o.status === 'active').map(o => String(o.unitId).trim()));
+                              const contractedUnits = bUnits.filter(u => contractedUnitIds.has(String(u.unitId).trim()));
+                              const offeredUnits = bUnits.filter(u => !contractedUnitIds.has(String(u.unitId).trim()) && offeredUnitIds.has(String(u.unitId).trim()));
+                              const contractedArea = contractedUnits.reduce((s, u) => s + parseArea(u), 0);
+                              const offeredArea = offeredUnits.reduce((s, u) => s + parseArea(u), 0);
+                              const contractedPct = totalArea > 0 ? ((contractedArea / totalArea) * 100).toFixed(1) : '0.0';
+                              const offeredPct = totalArea > 0 ? ((offeredArea / totalArea) * 100).toFixed(1) : '0.0';
+                              const fmt = v => v % 1 === 0 ? v.toLocaleString() : v.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+                              if (totalArea === 0) return null;
+                              return (
+                                <div style={{ background: 'rgba(37,99,235,0.06)', borderRadius: '10px', padding: '10px 14px', marginBottom: '14px', border: '1px solid rgba(37,99,235,0.12)' }}>
+                                  <div style={{ fontSize: '0.65rem', color: '#2563EB', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>📐 Area (m²)</div>
+                                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                      <span style={{ fontSize: '0.65rem', color: '#64748B', textTransform: 'uppercase' }}>Total</span>
+                                      <span style={{ fontSize: '0.95rem', color: '#1E293B', fontWeight: 'bold' }}>{fmt(totalArea)} m²</span>
+                                    </div>
+                                    <div style={{ width: '1px', background: 'rgba(255,255,255,0.1)' }}></div>
+                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                      <span style={{ fontSize: '0.65rem', color: '#64748B', textTransform: 'uppercase' }}>Contracted</span>
+                                      <span style={{ fontSize: '0.95rem', color: '#10B981', fontWeight: 'bold' }}>{fmt(contractedArea)} m²</span>
+                                      <span style={{ fontSize: '0.7rem', color: '#10B981', fontWeight: '600' }}>{contractedPct}%</span>
+                                    </div>
+                                    <div style={{ width: '1px', background: 'rgba(255,255,255,0.1)' }}></div>
+                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                      <span style={{ fontSize: '0.65rem', color: '#64748B', textTransform: 'uppercase' }}>Offered</span>
+                                      <span style={{ fontSize: '0.95rem', color: '#F59E0B', fontWeight: 'bold' }}>{fmt(offeredArea)} m²</span>
+                                      <span style={{ fontSize: '0.7rem', color: '#F59E0B', fontWeight: '600' }}>{offeredPct}%</span>
+                                    </div>
                                   </div>
                                 </div>
                               );
@@ -7202,26 +8332,7 @@ const App = () => {
                         <IonButton
                           fill="outline"
                           size="small"
-                          onClick={() => {
-                            setNoticeAlert({
-                              isOpen: true,
-                              header: 'Excel Format Required',
-                              message: 'The following columns are required for a successful import:\n\n' +
-                                '• Contract ID / Contract Date\n' +
-                                '• Offer ID / Unit ID\n' +
-                                '• Customer ID / Sales ID\n' +
-                                '• Joint Purchaser IDs (Joint 1 ID, etc.)\n' +
-                                '• Guarantor ID / Unit Price\n\n' +
-                                'Click <b>Continue</b> to select your file.',
-                              buttons: [
-                                { text: 'Cancel', role: 'cancel' },
-                                {
-                                  text: 'Continue',
-                                  handler: () => contractFileInputRef.current.click()
-                                }
-                              ]
-                            });
-                          }}
+                          onClick={() => setShowContractImportModal(true)}
                           style={{ '--border-radius': '8px', '--color': '#2563EB', '--border-color': 'rgba(59, 130, 246, 0.4)', fontWeight: 'bold' }}
                         >
                           <IonIcon icon={cloudUpload} slot="start" />
@@ -7304,8 +8415,8 @@ const App = () => {
                   }}>
                     <IonSearchbar
                       value={contractSearchQuery}
-                      onIonChange={e => setContractSearchQuery(e.detail.value || '')}
-                      debounce={250}
+                      onIonInput={e => setContractSearchQuery(e.detail.value || '')}
+                      debounce={0}
                       placeholder={t('contracts.filterPlaceholder')}
                       style={{
                         '--background': 'rgba(0,0,0,0.2)',
@@ -7602,8 +8713,8 @@ const App = () => {
                     }}>
                       <IonSearchbar
                         value={offerSearchQuery}
-                        onIonChange={e => setOfferSearchQuery(e.detail.value || '')}
-                        debounce={250}
+                        onIonInput={e => setOfferSearchQuery(e.detail.value || '')}
+                        debounce={0}
                         placeholder={t('offers.filterPlaceholder')}
                         style={{
                           '--background': 'rgba(0,0,0,0.2)',
@@ -7793,7 +8904,7 @@ const App = () => {
                                       size="small"
                                       fill="outline"
                                       color="danger"
-                                      style={{ flex: 1, fontSize: '0.7rem', '--border-color': '#DC2626' }}
+                                      style={{ flex: 1, fontSize: '0.6rem', '--border-color': '#DC2626', whiteSpace: 'nowrap' }}
                                       onClick={() => handleCancelOffer(offer)}
                                     >
                                       {t('offers.cancelBtn')}
@@ -7947,7 +9058,7 @@ const App = () => {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <h3 style={{ margin: 0, color: 'var(--app-text)', fontSize: '1rem', fontWeight: '800' }}>① Customer</h3>
-                            <IonButton fill="clear" size="small" onClick={() => setShowAddCustomerModal(true)} style={{ '--color': '#10B981', height: '24px', '--padding-start': '4px', '--padding-end': '4px' }}>
+                            <IonButton fill="clear" size="small" onClick={() => { setPendingOfferField('customer'); setShowAddCustomerModal(true); }} style={{ '--color': '#10B981', height: '24px', '--padding-start': '4px', '--padding-end': '4px' }}>
                               <IonIcon icon={addCircleOutline} slot="icon-only" style={{ fontSize: '18px' }} />
                             </IonButton>
                           </div>
@@ -8049,7 +9160,7 @@ const App = () => {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <h3 style={{ margin: 0, color: 'var(--app-text)', fontSize: '1rem', fontWeight: '800' }}>③ Sales Agent <span style={{ fontSize: '0.7rem', fontWeight: '400', color: '#64748B' }}>(optional)</span></h3>
-                            <IonButton fill="clear" size="small" onClick={() => setShowAddSalesModal(true)} style={{ '--color': '#10B981', height: '24px', '--padding-start': '4px', '--padding-end': '4px' }}>
+                            <IonButton fill="clear" size="small" onClick={() => { setPendingOfferField('sales'); setShowAddSalesModal(true); }} style={{ '--color': '#10B981', height: '24px', '--padding-start': '4px', '--padding-end': '4px' }}>
                               <IonIcon icon={addCircleOutline} slot="icon-only" style={{ fontSize: '18px' }} />
                             </IonButton>
                           </div>
@@ -8102,7 +9213,7 @@ const App = () => {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <h3 style={{ margin: 0, color: 'var(--app-text)', fontSize: '1rem', fontWeight: '800' }}>④ Joint Purchasers <span style={{ fontSize: '0.7rem', fontWeight: '400', color: '#64748B' }}>(optional)</span></h3>
-                            <IonButton fill="clear" size="small" onClick={() => setShowAddCustomerModal(true)} style={{ '--color': '#10B981', height: '24px', '--padding-start': '4px', '--padding-end': '4px' }}>
+                            <IonButton fill="clear" size="small" onClick={() => { setPendingOfferField('jointPurchaser'); setShowAddCustomerModal(true); }} style={{ '--color': '#10B981', height: '24px', '--padding-start': '4px', '--padding-end': '4px' }}>
                               <IonIcon icon={addCircleOutline} slot="icon-only" style={{ fontSize: '18px' }} />
                             </IonButton>
                           </div>
@@ -8120,24 +9231,53 @@ const App = () => {
                             ))}
                           </div>
                         )}
-                        <IonSelect
-                          interface="popover"
-                          value=""
-                          placeholder="Select a joint purchaser..."
-                          onIonChange={(e) => {
-                            const jpId = e.detail.value;
-                            if (!jpId) return;
-                            const alreadyAdded = offerJointPurchasers.some(jp => jp.id === jpId);
-                            if (alreadyAdded || (selectedCustomer && jpId === selectedCustomer.id) || (offerGuarantor && jpId === offerGuarantor.id)) return;
-                            const cust = customers.find(c => c.id === jpId);
-                            if (cust) setOfferJointPurchasers(prev => [...prev, { id: cust.id, name: cust.name }]);
-                          }}
-                          style={{ width: '100%', background: 'var(--app-bg)', borderRadius: '10px', padding: '0 10px', fontSize: '0.85rem', marginTop: '4px' }}
-                        >
-                          {customers.filter(c => c.id !== (selectedCustomer?.id || '') && !offerJointPurchasers.some(jp => jp.id === c.id) && c.id !== (offerGuarantor?.id || '')).map(c => (
-                            <IonSelectOption key={c.id} value={c.id}>{c.name} ({c.id})</IonSelectOption>
-                          ))}
-                        </IonSelect>
+                        <IonSearchbar
+                          value={jpSearchQuery}
+                          onIonInput={e => setJpSearchQuery(e.detail.value || '')}
+                          placeholder="Search by name or ID..."
+                          style={{ '--background': 'var(--app-bg)', '--color': 'var(--app-text)', '--placeholder-color': '#64748B', '--border-radius': '10px', padding: 0, margin: 0 }}
+                          debounce={200}
+                        />
+                        {jpSearchQuery.trim().length > 0 && (
+                          <div style={{ maxHeight: '200px', overflowY: 'auto', marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {customers
+                              .filter(c =>
+                                c.id !== (selectedCustomer?.id || '') &&
+                                !offerJointPurchasers.some(jp => jp.id === c.id) &&
+                                c.id !== (offerGuarantor?.id || '') &&
+                                ((c.name || '').toLowerCase().includes(jpSearchQuery.toLowerCase()) ||
+                                 (c.id || '').toLowerCase().includes(jpSearchQuery.toLowerCase()))
+                              )
+                              .slice(0, 15)
+                              .map(c => (
+                                <div
+                                  key={c.id}
+                                  onClick={() => {
+                                    setOfferJointPurchasers(prev => [...prev, { id: c.id, name: c.name }]);
+                                    setJpSearchQuery('');
+                                  }}
+                                  style={{ padding: '10px 14px', cursor: 'pointer', borderRadius: '8px', background: 'var(--app-bg)', transition: 'all 0.1s', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(37,99,235,0.08)'}
+                                  onMouseLeave={e => e.currentTarget.style.background = 'var(--app-bg)'}
+                                >
+                                  <div>
+                                    <div style={{ fontWeight: '600', color: 'var(--app-text)', fontSize: '0.85rem' }}>{c.name}</div>
+                                    <div style={{ fontSize: '0.75rem', color: '#64748B' }}>ID: {c.id}</div>
+                                  </div>
+                                  <IonIcon icon={chevronBack} style={{ transform: 'rotate(180deg)', color: '#94A3B8', fontSize: '14px' }} />
+                                </div>
+                              ))}
+                            {customers.filter(c =>
+                              c.id !== (selectedCustomer?.id || '') &&
+                              !offerJointPurchasers.some(jp => jp.id === c.id) &&
+                              c.id !== (offerGuarantor?.id || '') &&
+                              ((c.name || '').toLowerCase().includes(jpSearchQuery.toLowerCase()) ||
+                               (c.id || '').toLowerCase().includes(jpSearchQuery.toLowerCase()))
+                            ).length === 0 && (
+                              <div style={{ padding: '12px', textAlign: 'center', color: '#64748B', fontSize: '0.8rem' }}>No customers found</div>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {/* ── SECTION 5: Guarantor ── */}
@@ -8145,7 +9285,7 @@ const App = () => {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <h3 style={{ margin: 0, color: 'var(--app-text)', fontSize: '1rem', fontWeight: '800' }}>⑤ Guarantor <span style={{ fontSize: '0.7rem', fontWeight: '400', color: '#64748B' }}>(optional)</span></h3>
-                            <IonButton fill="clear" size="small" onClick={() => setShowAddCustomerModal(true)} style={{ '--color': '#10B981', height: '24px', '--padding-start': '4px', '--padding-end': '4px' }}>
+                            <IonButton fill="clear" size="small" onClick={() => { setPendingOfferField('guarantor'); setShowAddCustomerModal(true); }} style={{ '--color': '#10B981', height: '24px', '--padding-start': '4px', '--padding-end': '4px' }}>
                               <IonIcon icon={addCircleOutline} slot="icon-only" style={{ fontSize: '18px' }} />
                             </IonButton>
                           </div>
@@ -8159,23 +9299,53 @@ const App = () => {
                             <div style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '2px' }}>ID: {offerGuarantor.id}</div>
                           </div>
                         ) : (
-                          <IonSelect
-                            interface="popover"
-                            value=""
-                            placeholder="Select a guarantor..."
-                            onIonChange={(e) => {
-                              const gId = e.detail.value;
-                              if (!gId) return;
-                              if ((selectedCustomer && gId === selectedCustomer.id) || offerJointPurchasers.some(jp => jp.id === gId)) return;
-                              const cust = customers.find(c => c.id === gId);
-                              if (cust) setOfferGuarantor({ id: cust.id, name: cust.name });
-                            }}
-                            style={{ width: '100%', background: 'var(--app-bg)', borderRadius: '10px', padding: '0 10px', fontSize: '0.85rem' }}
-                          >
-                            {customers.filter(c => c.id !== (selectedCustomer?.id || '') && !offerJointPurchasers.some(jp => jp.id === c.id) && c.id !== (offerGuarantor?.id || '')).map(c => (
-                              <IonSelectOption key={c.id} value={c.id}>{c.name} ({c.id})</IonSelectOption>
-                            ))}
-                          </IonSelect>
+                          <>
+                            <IonSearchbar
+                              value={guarantorSearchQuery}
+                              onIonInput={e => setGuarantorSearchQuery(e.detail.value || '')}
+                              placeholder="Search by name or ID..."
+                              style={{ '--background': 'var(--app-bg)', '--color': 'var(--app-text)', '--placeholder-color': '#64748B', '--border-radius': '10px', padding: 0, margin: 0 }}
+                              debounce={200}
+                            />
+                            {guarantorSearchQuery.trim().length > 0 && (
+                              <div style={{ maxHeight: '200px', overflowY: 'auto', marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                {customers
+                                  .filter(c =>
+                                    c.id !== (selectedCustomer?.id || '') &&
+                                    !offerJointPurchasers.some(jp => jp.id === c.id) &&
+                                    ((c.name || '').toLowerCase().includes(guarantorSearchQuery.toLowerCase()) ||
+                                     (c.id || '').toLowerCase().includes(guarantorSearchQuery.toLowerCase()))
+                                  )
+                                  .slice(0, 15)
+                                  .map(c => (
+                                    <div
+                                      key={c.id}
+                                      onClick={() => {
+                                        setOfferGuarantor({ id: c.id, name: c.name });
+                                        setGuarantorSearchQuery('');
+                                      }}
+                                      style={{ padding: '10px 14px', cursor: 'pointer', borderRadius: '8px', background: 'var(--app-bg)', transition: 'all 0.1s', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(37,99,235,0.08)'}
+                                      onMouseLeave={e => e.currentTarget.style.background = 'var(--app-bg)'}
+                                    >
+                                      <div>
+                                        <div style={{ fontWeight: '600', color: 'var(--app-text)', fontSize: '0.85rem' }}>{c.name}</div>
+                                        <div style={{ fontSize: '0.75rem', color: '#64748B' }}>ID: {c.id}</div>
+                                      </div>
+                                      <IonIcon icon={chevronBack} style={{ transform: 'rotate(180deg)', color: '#94A3B8', fontSize: '14px' }} />
+                                    </div>
+                                  ))}
+                                {customers.filter(c =>
+                                  c.id !== (selectedCustomer?.id || '') &&
+                                  !offerJointPurchasers.some(jp => jp.id === c.id) &&
+                                  ((c.name || '').toLowerCase().includes(guarantorSearchQuery.toLowerCase()) ||
+                                   (c.id || '').toLowerCase().includes(guarantorSearchQuery.toLowerCase()))
+                                ).length === 0 && (
+                                  <div style={{ padding: '12px', textAlign: 'center', color: '#64748B', fontSize: '0.8rem' }}>No customers found</div>
+                                )}
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -8309,46 +9479,14 @@ const App = () => {
                         <IonButton
                           fill="outline"
                           style={{ '--color': '#FFFFFF', '--background': '#2563EB', color: '#FFFFFF', '--border-radius': '10px' }}
-                          onClick={() => {
-                            if (window.confirm(
-                              `⚠️ IMPORT WARNING\n\nYou are about to import customers from an Excel file.\n\nThe Excel file should contain these columns:\n\n` +
-                              `  1. Customer ID  (auto-generated if missing)\n` +
-                              `  2. Customer Name  (required)\n` +
-                              `  3. Phone 1\n` +
-                              `  4. Phone 2\n` +
-                              `  5. Email\n` +
-                              `  6. ID Number  (National ID / Passport)\n` +
-                              `  7. ID Type\n` +
-                              `  8. Blood Type\n` +
-                              `  9. Direct/Indirect\n\n` +
-                              `Imported customers will be ADDED to the existing list.\n\nContinue?`
-                            )) {
-                              customerFileInputRef.current?.click();
-                            }
-                          }}
+                          onClick={() => setShowCustomerImportModal(true)}
                         >
                           <IonIcon icon={cloudUpload} slot="start" /> {t('common.import')}</IonButton>
                         <IonButton
                           fill="outline"
                           color="success"
                           style={{ '--border-radius': '10px' }}
-                          onClick={() => {
-                            if (window.confirm(
-                              `📊 EXPORT CONFIRMATION\n\nYou are about to export ${customers.length} customers to Excel.\n\nThe following columns will be exported:\n\n` +
-                              `  1. Customer ID\n` +
-                              `  2. Customer Name\n` +
-                              `  3. Phone 1\n` +
-                              `  4. Phone 2\n` +
-                              `  5. Email\n` +
-                              `  6. ID Number\n` +
-                              `  7. ID Type\n` +
-                              `  8. Blood Type\n` +
-                              `  9. Direct/Indirect\n\n` +
-                              `Continue with export?`
-                            )) {
-                              exportCustomersToExcel(customers);
-                            }
-                          }}
+                          onClick={() => exportCustomersToExcel(customers)}
                         >
                           <IonIcon icon={downloadOutline} slot="start" /> {t('common.export')}</IonButton>
                         <IonButton
@@ -8399,7 +9537,29 @@ const App = () => {
                         >
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                             <h2 style={{ fontSize: '1.4rem', fontWeight: '999', color: '#1E293B', margin: 0 }}>{c.name}</h2>
-                            <span style={{ fontSize: '0.65rem', color: '#2563EB', fontWeight: '999', background: 'rgba(30, 58, 138, 0.1)', padding: '4px 10px', borderRadius: '4px' }}>#{c.id}</span>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                              {/* Payment Score Badge */}
+                              {(() => {
+                                const custIns = installments.filter(i =>
+                                  String(i.customerId) === String(c.id) || i.customerName === c.name
+                                );
+                                if (custIns.length === 0) return null;
+                                const today = new Date(); today.setHours(0,0,0,0);
+                                const totalUnpaid = custIns.filter(i => i.status !== 'Paid' && i.status !== 'terminated' && i.status !== 'resold');
+                                const overdue = totalUnpaid.filter(i => { const d = parseSafeDate(i.dueDate); return d && d < today; });
+                                const ratio = overdue.length / Math.max(custIns.length, 1);
+                                let score, bg, color;
+                                if (ratio === 0)        { score = '✅ On Time';   bg = 'rgba(34,197,94,0.12)';  color = '#16a34a'; }
+                                else if (ratio < 0.3)  { score = '⚠ Delayed';   bg = 'rgba(245,158,11,0.12)'; color = '#d97706'; }
+                                else                   { score = '🔴 High Risk'; bg = 'rgba(239,68,68,0.12)';  color = '#dc2626'; }
+                                return (
+                                  <span style={{ fontSize: '0.6rem', fontWeight: '800', background: bg, color, padding: '3px 8px', borderRadius: '6px', border: `1px solid ${color}44` }}>
+                                    {score}
+                                  </span>
+                                );
+                              })()}
+                              <span style={{ fontSize: '0.65rem', color: '#2563EB', fontWeight: '999', background: 'rgba(30, 58, 138, 0.1)', padding: '4px 10px', borderRadius: '4px' }}>#{c.id}</span>
+                            </div>
                           </div>
 
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginBottom: '15px' }}>
@@ -8422,13 +9582,46 @@ const App = () => {
 
                           {/* Linked Units Badge Section */}
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                            {contracts.filter(con => con.customerId === c.id).map(con => (
-                              <div key={con.id} className="pro-badge pro-badge-success" style={{ fontSize: '0.6rem' }}>Unit {con.unitId}</div>
-                            ))}
+                            {contracts.filter(con => con.customerId === c.id).map(con => {
+                              const st = (con.status || 'active').toLowerCase();
+                              const isTerminated = st === 'terminated';
+                              const isResold     = st === 'resold';
+                              const badgeBg    = isTerminated ? 'rgba(220,38,38,0.18)'   : isResold ? 'rgba(217,119,6,0.16)'   : 'rgba(34,197,94,0.12)';
+                              const badgeBorder = isTerminated ? 'rgba(220,38,38,0.55)'  : isResold ? 'rgba(217,119,6,0.5)'    : 'rgba(34,197,94,0.4)';
+                              const badgeColor  = isTerminated ? '#ef4444'               : isResold ? '#d97706'                : '#16a34a';
+                              const badgeLabel  = isTerminated ? '✕ TERMINATED'         : isResold ? '↺ RESOLD'              : '✓ ACTIVE';
+                              return (
+                                <div key={con.id} style={{
+                                  fontSize: '0.6rem', fontWeight: '800', padding: '3px 8px', borderRadius: '6px',
+                                  background: badgeBg, color: badgeColor,
+                                  border: `1px solid ${badgeBorder}`,
+                                  display: 'flex', alignItems: 'center', gap: '4px'
+                                }}>
+                                  UNIT {con.unitId}
+                                  <span style={{ opacity: 0.7, fontWeight: '600' }}>·</span>
+                                  {badgeLabel}
+                                </div>
+                              );
+                            })}
                             {/* Joint Purchaser Roles */}
-                            {contracts.filter(con => (con.jointPurchasers || []).some(jp => jp.id === c.id)).map(con => (
-                              <div key={`jp-${con.id}`} className="pro-badge" style={{ fontSize: '0.6rem', background: 'rgba(0, 255, 255, 0.1)', color: '#2563EB' }}>Joint: {con.unitId}</div>
-                            ))}
+                            {contracts.filter(con => (con.jointPurchasers || []).some(jp => jp.id === c.id)).map(con => {
+                              const st = (con.status || 'active').toLowerCase();
+                              const isTerminated = st === 'terminated';
+                              const isResold     = st === 'resold';
+                              const badgeBg    = isTerminated ? 'rgba(220,38,38,0.15)'   : isResold ? 'rgba(217,119,6,0.13)'  : 'rgba(0,255,255,0.1)';
+                              const badgeColor  = isTerminated ? '#ef4444'               : isResold ? '#d97706'               : '#2563EB';
+                              const badgeLabel  = isTerminated ? '✕ TERMINATED'         : isResold ? '↺ RESOLD'             : '';
+                              return (
+                                <div key={`jp-${con.id}`} style={{
+                                  fontSize: '0.6rem', fontWeight: '800', padding: '3px 8px', borderRadius: '6px',
+                                  background: badgeBg, color: badgeColor,
+                                  border: `1px solid ${badgeColor}44`,
+                                  display: 'flex', alignItems: 'center', gap: '4px'
+                                }}>
+                                  Joint: {con.unitId}{badgeLabel ? ` · ${badgeLabel}` : ''}
+                                </div>
+                              );
+                            })}
                             {/* Guarantor Roles */}
                             {contracts.filter(con => con.guarantor?.id === c.id).map(con => (
                               <div key={`g-${con.id}`} className="pro-badge" style={{ fontSize: '0.6rem', background: 'rgba(235, 68, 90, 0.1)', color: '#DC2626' }}>Guarantor: {con.unitId}</div>
@@ -8517,6 +9710,7 @@ const App = () => {
                   }}>
                     <IonSearchbar
                       value={feedbackSearchQuery}
+                      onIonInput={e => setFeedbackSearchQuery(e.detail.value || '')}
                       onIonChange={e => setFeedbackSearchQuery(e.detail.value || '')}
                       placeholder={t('feedbacks.searchPlaceholder')}
                       style={{ '--background': 'rgba(255,255,255,0.05)', '--color': 'var(--app-text)', '--placeholder-color': '#64748B', borderRadius: '12px', padding: 0 }}
@@ -8605,9 +9799,18 @@ const App = () => {
                         if (filterOverdueWithRejected && !isRejected) return false;
                         if (filterOverdueWithoutRejected && isRejected) return false;
 
+                        // Exclude units with no active contract (terminated/resold)
+                        const uid = String(ins.unitId || '').trim();
+                        if (uid && terminatedUnitIds.has(uid)) return false;
+
                         // Match the broad definition: Rejected and Past Due OR any non-cheque balance that is Past Due
                         const isRecoveryRequired = isPastDue && (ins.status !== 'Cancelled');
                         if (!isRecoveryRequired) return false;
+
+                        const search = feedbackSearchQuery.trim().toLowerCase();
+
+                        // Empty query — pass everything through
+                        if (!search) return true;
 
                         const contract = contracts.find(c => c.id === ins.contractId) || contracts.find(c => c.unitId === ins.unitId) || {};
 
@@ -8619,7 +9822,7 @@ const App = () => {
 
                         const customerName = (owner ? owner.name : (contract.customerName || ins.customerName || '')).toLowerCase();
                         const customerPhone = (owner ? owner.phone : '').toLowerCase();
-                        const customerPhone2 = (owner ? owner.phone2 : '').toLowerCase();
+                        const customerPhone2 = (owner ? (owner.phone2 || '') : '').toLowerCase();
 
                         // Resolve Joint Purchasers for search
                         const jointEntries = (contract.jointPurchasers || []).map(jp => {
@@ -8642,20 +9845,23 @@ const App = () => {
                           gName = (gCust?.name || contract.guarantor.name || gId || '').toLowerCase();
                         }
 
-                        const search = feedbackSearchQuery.toLowerCase();
-
                         return (
                           customerName.includes(search) ||
                           customerPhone.includes(search) ||
                           customerPhone2.includes(search) ||
                           (ins.unitId || '').toLowerCase().includes(search) ||
                           (ins.chequeNumber || '').toLowerCase().includes(search) ||
+                          (ins.bank || '').toLowerCase().includes(search) ||
                           gName.includes(search) ||
                           jointNames.includes(search) ||
                           jointPhones.includes(search) ||
                           jointIds.includes(search) ||
                           (ins.status || '').toLowerCase().includes(search) ||
-                          (ins.payments || []).some(p => String(p.ref || '').toLowerCase().includes(search) || String(p.bank || '').toLowerCase().includes(search))
+                          (ins.payments || []).some(p =>
+                            String(p.ref || '').toLowerCase().includes(search) ||
+                            String(p.bank || '').toLowerCase().includes(search) ||
+                            String(p.chequeNumber || '').toLowerCase().includes(search)
+                          )
                         );
                       })
                       .filter(ins => {
@@ -9039,7 +10245,23 @@ const App = () => {
                             <IonButton fill="clear" size="small" onClick={() => { setEditingSales({ ...s }); setShowEditSalesModal(true); }}>
                               <IonIcon icon={create} slot="icon-only" style={{ opacity: 0.6 }} />
                             </IonButton>
-                            <IonButton fill="clear" style={{ '--color': '#FFFFFF', '--background': '#DC2626', color: '#FFFFFF' }} size="small" onClick={() => { deleteSales(s.id); setSales(getSales()); }}>
+                            <IonButton fill="clear" style={{ '--color': '#FFFFFF', '--background': '#DC2626', color: '#FFFFFF' }} size="small" onClick={() => {
+                              // Block deletion if sales agent is linked to any contracts or offers
+                              const linkedC = (contracts || []).filter(c => String(c.salesId) === String(s.id));
+                              const linkedO = (offers    || []).filter(o => String(o.salesId) === String(s.id));
+                              if (linkedC.length > 0 || linkedO.length > 0) {
+                                alert(
+                                  `❌ Cannot Delete Sales Agent\n\nThis agent is linked to active records:\n` +
+                                  (linkedC.length > 0 ? `• ${linkedC.length} Contract(s)\n` : '') +
+                                  (linkedO.length > 0 ? `• ${linkedO.length} Offer(s)\n`    : '') +
+                                  `\nPlease reassign these records before deleting this agent.`
+                                );
+                                return;
+                              }
+                              if (window.confirm(`Delete sales agent "${s.name}"?`)) {
+                                deleteSales(s.id); setSales(getSales());
+                              }
+                            }}>
                               <IonIcon icon={trash} slot="icon-only" style={{ opacity: 0.6 }} />
                             </IonButton>
                           </div>
@@ -9056,7 +10278,7 @@ const App = () => {
             }
 
             {/* Add Sales Modal */}
-            <IonModal isOpen={showAddSalesModal} onDidDismiss={() => { setShowAddSalesModal(false); resetDataEntryForms(); }} className="chrono-modal">
+            <IonModal isOpen={showAddSalesModal} onDidDismiss={() => { setShowAddSalesModal(false); setPendingOfferField(null); if (currentView !== 'createOffer') resetDataEntryForms(); }} className="chrono-modal">
               <IonHeader>
                 <IonToolbar style={{ '--background': '#F1F5F9', '--color': '#2563EB' }} >
                   <IonTitle>{t('sales.addAgentTitle')}</IonTitle>
@@ -9245,6 +10467,76 @@ const App = () => {
                     </div>
                   </div>
 
+                  {/* WhatsApp Bulk Sender */}
+                  {upcomingReminders.filter(r => r.phone).length > 0 && (() => {
+                    // Only reminders not yet sent a WhatsApp reminder
+                    const allWithPhone = upcomingReminders.filter(r => r.phone);
+                    const notSent = allWithPhone.filter(r => !reminderSentIds.has(r.id));
+                    const alreadySent = allWithPhone.length - notSent.length;
+                    // De-dupe by phone (pick first per phone for the send action)
+                    const toSend = [...new Map(notSent.map(r => [r.phone, r])).values()];
+
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', gap: '8px', flexWrap: 'wrap' }}>
+                        {/* Info strip */}
+                        <div style={{ fontSize: '0.72rem', color: '#64748B' }}>
+                          {alreadySent > 0 && (
+                            <span style={{ marginRight: '10px' }}>
+                              ✅ <strong>{alreadySent}</strong> already reminded
+                            </span>
+                          )}
+                          {notSent.length > 0 && (
+                            <span style={{ color: '#f59e0b', fontWeight: '600' }}>
+                              🕐 <strong>{notSent.length}</strong> pending reminder
+                            </span>
+                          )}
+                          {alreadySent > 0 && (
+                            <button
+                              onClick={() => { if (window.confirm('Reset reminder history? All installments will be treated as un-reminded.')) clearReminderHistory(); }}
+                              style={{ marginLeft: '10px', background: 'none', border: '1px solid rgba(100,116,139,0.4)', borderRadius: '6px', padding: '2px 8px', cursor: 'pointer', color: '#64748B', fontSize: '0.67rem' }}
+                            >↺ Reset</button>
+                          )}
+                        </div>
+
+                        {/* Send button — only if there are un-reminded */}
+                        {toSend.length > 0 ? (
+                          <button
+                            onClick={() => {
+                              if (!window.confirm(`Send WhatsApp reminders to ${toSend.length} un-reminded installment(s)?`)) return;
+                              const sentIds = [];
+                              toSend.forEach((rem, i) => {
+                                setTimeout(() => {
+                                  const d = rem.dueDate ? new Date(rem.dueDate) : null;
+                                  const isOverdue = d && d < new Date();
+                                  const restAmt = Number(rem.restAmount || rem.amount || 0);
+                                  const bldg = rem.buildingName || '';
+                                  const msg = isOverdue
+                                    ? `عزيزي ${rem.custName}، وحدة ${rem.unitId}${bldg ? ` في ${bldg}` : ''} لديها قسط متأخر برصيد متبقي ${restAmt.toLocaleString()} جنيه. نرجو السداد في أقرب وقت.`
+                                    : `عزيزي ${rem.custName}، تذكير: لديك قسط قادم في ${rem.formattedDueDate} برصيد متبقي ${restAmt.toLocaleString()} جنيه لوحدة ${rem.unitId}${bldg ? ` (${bldg})` : ''}.`;
+                                  smartOpenWhatsApp(rem.phone, msg);
+                                }, i * 900);
+                                // Mark ALL installments for this phone as reminded
+                                notSent.filter(r => r.phone === rem.phone).forEach(r => sentIds.push(r.id));
+                              });
+                              markReminderSent(sentIds);
+                            }}
+                            style={{
+                              background: 'linear-gradient(135deg,#22c55e,#16a34a)', color: '#fff',
+                              border: 'none', borderRadius: '12px', padding: '10px 18px',
+                              cursor: 'pointer', fontWeight: '700', fontSize: '0.8rem',
+                              display: 'flex', alignItems: 'center', gap: '8px',
+                              boxShadow: '0 4px 16px rgba(34,197,94,0.4)', flexShrink: 0,
+                            }}
+                          >
+                            📲 WhatsApp New ({toSend.length})
+                          </button>
+                        ) : (
+                          <span style={{ color: '#22c55e', fontSize: '0.78rem', fontWeight: '700' }}>✅ All reminded!</span>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   <div className="pro-scroll-panel" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     {upcomingReminders.length === 0 ? (
                       <div className="pro-empty-state">
@@ -9334,8 +10626,8 @@ const App = () => {
 
                           <div style={{ display: 'flex', alignItems: 'center', gap: '25px' }}>
                             <div style={{ textAlign: 'right' }}>
-                              <div style={{ color: '#2563EB', fontSize: '1.4rem', fontWeight: '900' }}>{formatCurrency(rem.amount)}</div>
-                              <div style={{ color: '#64748B', fontSize: '0.7rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '2px' }}>Amount Due</div>
+                              <div style={{ color: '#2563EB', fontSize: '1.4rem', fontWeight: '900' }}>{formatCurrency(rem.restAmount ?? rem.amount)}</div>
+                              <div style={{ color: '#64748B', fontSize: '0.7rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '2px' }}>Remaining Balance</div>
                             </div>
 
                             {rem.lastReminderSent ? (
@@ -9457,23 +10749,7 @@ const App = () => {
                           fill="outline"
                           size="small"
                           style={{ '--color': '#FFFFFF', '--background': '#2563EB', color: '#FFFFFF', '--border-radius': '10px' }}
-                          onClick={() => {
-                            if (window.confirm(
-                              `⚠️ IMPORT WARNING\n\nYou are about to import units into "${activeBuilding.name}".\n\nThe Excel file MUST contain these columns:\n\n` +
-                              `  1. Unit ID  (required)\n` +
-                              `  2. Floor\n` +
-                              `  3. Area  (sqm)\n` +
-                              `  4. View\n` +
-                              `  5. Price  (Base Price - numbers only)\n` +
-                              `  6. Finished Price  (numbers only)\n` +
-                              `  7. Share\n` +
-                              `  8. Plan  (Payment Plan)\n` +
-                              `  9. Status  (available / contract / locked)\n\n` +
-                              `Imported units will be ADDED to the existing inventory.\n\nContinue?`
-                            )) {
-                              fileInputRef.current?.click();
-                            }
-                          }}
+                          onClick={() => setShowUnitImportModal(true)}
                         >
                           <IonIcon icon={cloudUpload} slot="start" /> {t('common.import')}</IonButton>
                         <IonButton
@@ -9481,23 +10757,7 @@ const App = () => {
                           size="small"
                           color="success"
                           style={{ '--border-radius': '10px' }}
-                          onClick={() => {
-                            if (window.confirm(
-                              `📊 EXPORT CONFIRMATION\n\nYou are about to export ${activeBuilding.units?.length || 0} units from "${activeBuilding.name}" to Excel.\n\nThe following columns will be exported:\n\n` +
-                              `  1. Unit ID\n` +
-                              `  2. Floor\n` +
-                              `  3. Area  (sqm)\n` +
-                              `  4. View\n` +
-                              `  5. Price  (Base Price)\n` +
-                              `  6. Finished Price\n` +
-                              `  7. Share\n` +
-                              `  8. Plan  (Payment Plan)\n` +
-                              `  9. Status\n\n` +
-                              `Continue with export?`
-                            )) {
-                              exportBuildingUnitsToExcel(activeBuilding);
-                            }
-                          }}
+                          onClick={() => exportBuildingUnitsToExcel(activeBuilding)}
                         >
                           <IonIcon icon={downloadOutline} slot="start" /> {t('common.export')}</IonButton>
                         <IonButton
@@ -9510,6 +10770,36 @@ const App = () => {
                       </div>
                     </div>
                   </div>
+                  {/* --- INVENTORY STATS BANNER --- */}
+                  {(() => {
+                    const allU = activeBuilding.units || [];
+                    const parseArea = u => parseFloat(String(u.area || '').replace(/[^0-9.]/g, '')) || 0;
+                    const contractedIds = new Set(contracts.map(c => String(c.unitId).trim()));
+                    const offeredIds = new Set(offers.filter(o => o.status === 'active').map(o => String(o.unitId).trim()));
+                    const contractedU = allU.filter(u => contractedIds.has(String(u.unitId).trim()));
+                    const offeredU = allU.filter(u => !contractedIds.has(String(u.unitId).trim()) && offeredIds.has(String(u.unitId).trim()));
+                    const lockedU = allU.filter(u => !contractedIds.has(String(u.unitId).trim()) && !offeredIds.has(String(u.unitId).trim()) && (u.status || '').toLowerCase() === 'locked');
+                    const availableU = allU.filter(u => !contractedIds.has(String(u.unitId).trim()) && !offeredIds.has(String(u.unitId).trim()) && (u.status || '').toLowerCase() === 'available');
+                    const sum = arr => arr.reduce((s, u) => s + parseArea(u), 0);
+                    const fmt = v => v > 0 ? `${v % 1 === 0 ? v.toLocaleString() : v.toFixed(0)} m²` : '— m²';
+                    const stats = [
+                      { label: 'Available', count: availableU.length, area: sum(availableU), color: '#10B981', bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.2)', icon: '✅' },
+                      { label: 'Locked',    count: lockedU.length,    area: sum(lockedU),    color: '#DC2626', bg: 'rgba(220,38,38,0.08)',   border: 'rgba(220,38,38,0.2)',   icon: '🔒' },
+                      { label: 'Contracted',count: contractedU.length,area: sum(contractedU),color: '#2563EB', bg: 'rgba(37,99,235,0.08)',  border: 'rgba(37,99,235,0.2)',   icon: '📋' },
+                      { label: 'Offered',   count: offeredU.length,   area: sum(offeredU),   color: '#F59E0B', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.2)',  icon: '🏷️' },
+                    ];
+                    return (
+                      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '20px' }}>
+                        {stats.map(s => (
+                          <div key={s.label} style={{ flex: '1 1 140px', background: s.bg, border: `1px solid ${s.border}`, borderRadius: '12px', padding: '12px 16px' }}>
+                            <div style={{ fontSize: '0.65rem', color: s.color, fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>{s.icon} {s.label}</div>
+                            <div style={{ fontSize: '1.3rem', color: s.color, fontWeight: '900', lineHeight: 1 }}>{s.count}</div>
+                            <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px', fontWeight: '600' }}>{fmt(s.area)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
 
                   {/* Filters Row */}
                   <div className="pro-glass-card inventory-filters" style={{ padding: '15px', marginBottom: '30px', display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -9568,7 +10858,10 @@ const App = () => {
                       if (displayed.length === 0) return <div className="pro-empty-state" style={{ gridColumn: '1/-1' }}>{t('units.noUnitsFound')}</div>;
 
                       return displayed.map((unit) => {
-                        const lCon = contracts.find(c => String(c.unitId) === String(unit.unitId));
+                        // Prefer active contract; fall back to terminated/resold ones
+                        const lConActive = contracts.find(c => String(c.unitId) === String(unit.unitId) && (!c.status || c.status === 'active'));
+                        const lConTerminated = !lConActive ? contracts.find(c => String(c.unitId) === String(unit.unitId) && (c.status === 'terminated' || c.status === 'resold')) : null;
+                        const lCon = lConActive; // Only active contract used for payment plan
                         const lOff = offers.find(o => String(o.unitId) === String(unit.unitId) && o.status !== 'contracted' && o.status !== 'cancelled');
                         const sColor = getStatusColor(unit.status);
 
@@ -9621,6 +10914,41 @@ const App = () => {
                               </div>
                             )}
 
+                            {/* Terminated contract — single compact line */}
+                            {lConTerminated && (
+                              <div
+                                onClick={() => openContractInTab(lConTerminated)}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  padding: '8px 12px',
+                                  borderRadius: '8px',
+                                  background: lConTerminated.status === 'resold' ? 'rgba(230,126,34,0.08)' : 'rgba(220,38,38,0.07)',
+                                  border: `1px solid ${lConTerminated.status === 'resold' ? 'rgba(230,126,34,0.25)' : 'rgba(220,38,38,0.22)'}`,
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                <span style={{
+                                  fontSize: '0.6rem',
+                                  fontWeight: '800',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.5px',
+                                  padding: '2px 7px',
+                                  borderRadius: '4px',
+                                  background: lConTerminated.status === 'resold' ? 'rgba(230,126,34,0.2)' : 'rgba(220,38,38,0.15)',
+                                  color: lConTerminated.status === 'resold' ? '#E67E22' : '#DC2626',
+                                  flexShrink: 0
+                                }}>
+                                  {lConTerminated.status === 'resold' ? 'Resold' : 'Terminated'}
+                                </span>
+                                <span style={{ fontSize: '0.82rem', color: '#475569', fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {lConTerminated.customerName || lConTerminated.customerId}
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Active contract holder or active offer */}
                             {(lCon || lOff) && (
                               <div
                                 onClick={() => lCon ? openContractInTab(lCon) : setViewingOffer(lOff)}
@@ -9652,10 +10980,54 @@ const App = () => {
                                 : Number(unit.price || 0);
                               const discountPct = Number(source.discountPercent || 0);
                               const finalPrice = Number(source.finalPrice || source.totalPrice || (originalPrice * (1 - discountPct / 100)));
-                              const dpPct = Number(source.downPayment || 0);
-                              const dpAmount = Number(source.downPaymentAmount || (finalPrice * dpPct / 100));
-                              const years = source.years || '—';
-                              const frequency = source.frequency || '—';
+
+                              // --- Compute DP, years, frequency from actual installments ---
+                              const linkedIns = lCon
+                                ? installments.filter(i => i.contractId === lCon.id && i.status !== 'terminated' && i.status !== 'resold')
+                                : (lOff?.installments || []);
+                              const dpInstallments = linkedIns.filter(i => (i.type || '').toLowerCase().includes('down payment'));
+                              const actualDP = dpInstallments.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+                              const dpAmount = actualDP > 0 ? actualDP : Number(source.downPaymentAmount || (finalPrice * Number(source.downPayment || 0) / 100));
+                              const dpPct = finalPrice > 0 ? Number(((dpAmount / finalPrice) * 100).toFixed(1)) : Number(source.downPayment || 0);
+
+                              // Compute frequency and years from cheque installments
+                              const chequeIns = linkedIns.filter(i => !(i.type || '').toLowerCase().includes('down payment'));
+                              let frequency = source.frequency || '';
+                              let years = source.years || '';
+
+                              if (chequeIns.length > 1) {
+                                const parseD = (d) => { if (!d) return null; if (!isNaN(d) && Number(d) > 10000) return new Date((Number(d) - 25569) * 86400000); const dt = new Date(d); return isNaN(dt.getTime()) ? null : dt; };
+                                const sortedDates = chequeIns.map(i => parseD(i.dueDate)).filter(d => d !== null).sort((a, b) => a - b);
+                                if (sortedDates.length >= 2) {
+                                  // Auto-detect frequency from average gap between installments
+                                  if (!frequency) {
+                                    const gaps = [];
+                                    for (let gi = 1; gi < sortedDates.length; gi++) {
+                                      gaps.push((sortedDates[gi] - sortedDates[gi - 1]) / (1000 * 60 * 60 * 24 * 30));
+                                    }
+                                    const avgGap = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+                                    if (avgGap <= 1.5) frequency = 'monthly';
+                                    else if (avgGap <= 4) frequency = 'quarterly';
+                                    else if (avgGap <= 7.5) frequency = 'biannual';
+                                    else frequency = 'annual';
+                                  }
+                                  // Auto-detect years from date span
+                                  if (!years) {
+                                    const spanYears = (sortedDates[sortedDates.length - 1] - sortedDates[0]) / (1000 * 60 * 60 * 24 * 365.25);
+                                    years = Math.round(spanYears * 10) / 10;
+                                    if (years < 1 && chequeIns.length > 0) years = Math.max(1, years);
+                                  }
+                                }
+                              } else if (chequeIns.length === 1) {
+                                // Single installment = 1 year or Cash
+                                if (!years) years = 1;
+                                if (!frequency) frequency = 'annual';
+                              }
+
+                              // Final fallback
+                              if (!years) years = '—';
+                              if (!frequency) frequency = '—';
+
                               const reservationAmt = Number(source.reservationAmount || 0);
                               const jointPurchasers = source.jointPurchasers || [];
                               const guarantor = source.guarantor || null;
@@ -9702,7 +11074,7 @@ const App = () => {
                                     )}
                                     <div>
                                       <span style={{ color: '#64748B', fontSize: '0.6rem', display: 'block' }}>Plan</span>
-                                      <span style={{ color: '#1E293B', fontWeight: '700' }}>{years} yrs / {frequency}</span>
+                                      <span style={{ color: '#1E293B', fontWeight: '700' }}>{years} yrs / {frequency}{chequeIns.length > 0 ? ` (${chequeIns.length})` : ''}</span>
                                     </div>
                                   </div>
                                   {jointPurchasers.length > 0 && (
@@ -9790,6 +11162,23 @@ const App = () => {
                               </IonButton>
                               <IonButton fill="clear" size="small" onClick={() => handleDeleteUnit(unit.id)} style={{ '--color': '#DC2626', opacity: 0.5 }}>
                                 <IonIcon icon={trash} />
+                              </IonButton>
+                              {/* AI Quick-Ask */}
+                              <IonButton
+                                fill="clear" size="small"
+                                title={`Ask AI about ${unit.unitId}`}
+                                onClick={() => {
+                                  // ── Plan gate: DYRai ──────────────────────────────
+                                  if (!checkFeature('DYRai Assistant', planLimits.dyrai)) return;
+                                  setShowAIAssistant(true);
+                                  setTimeout(() => {
+                                    const event = new CustomEvent('ai-prefill', { detail: `Tell me everything about unit ${unit.unitId}: payment status, customer, overdue amount, and progress.` });
+                                    window.dispatchEvent(event);
+                                  }, 400);
+                                }}
+                                style={{ '--color': '#6366f1' }}
+                              >
+                                🤖
                               </IonButton>
                             </div>
                           </div>
@@ -10274,7 +11663,7 @@ const App = () => {
             </IonModal>
 
             {/* --- ADD CUSTOMER MODAL --- */}
-            <IonModal isOpen={showAddCustomerModal} onDidDismiss={() => { setShowAddCustomerModal(false); resetDataEntryForms(); }}>
+            <IonModal isOpen={showAddCustomerModal} onDidDismiss={() => { setShowAddCustomerModal(false); setPendingOfferField(null); if (currentView !== 'createOffer') resetDataEntryForms(); }}>
               <IonHeader><IonToolbar><IonTitle>{t('customers.addCustomer')}</IonTitle><IonButton slot="end" onClick={() => setShowAddCustomerModal(false)}>{t('common.cancel')}</IonButton></IonToolbar></IonHeader>
               <IonContent className="ion-padding" style={{ '--background': 'var(--app-bg)' }}>
                 <div style={{ padding: '20px', paddingBottom: '40vh', display: 'flex', flexDirection: 'column' }}>
@@ -11247,6 +12636,48 @@ const App = () => {
                           >
                             Manage Joint Purchasers / Guarantor
                           </IonButton>
+                          <IonButton
+                            size="small" fill="outline"
+                            style={{ '--color': '#FFFFFF', '--background': '#1E6F3B', color: '#FFFFFF' }}
+                            onClick={async () => {
+                              try {
+                                const c = viewingContract;
+                                const unit = buildings.flatMap(b => (b.units || []).map(u => ({ ...u, buildingName: b.name }))).find(u => u.unitId === c.unitId);
+                                const cust = customers.find(cu => cu.id === c.customerId);
+                                const agent = sales.find(s => String(s.id).trim() === String(c.salesId || '').trim());
+                                const allBrokers = (await getBrokers()) || [];
+                                const broker = agent?.brokerId ? allBrokers.find(b => String(b.id) === String(agent.brokerId)) : null;
+                                const allCommissions = (await getCommissions()) || [];
+                                const comm = allCommissions.find(cm => String(cm.salesId) === String(c.salesId) && (String(cm.contractId) === String(c.id) || String(cm.unitId) === String(c.unitId)));
+                                const linkedInstallments = installments.filter(i => i.contractId === c.id || String(i.unitId).trim() === String(c.unitId).trim()).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+                                let layoutUrl = null;
+                                try { if (window.electronAPI?.getUnitLayout) layoutUrl = await window.electronAPI.getUnitLayout(c.unitId); } catch(e) {}
+                                const jpNames = (c.jointPurchasers || []).map(jp => {
+                                  const jpCust = customers.find(cu => String(cu.id).trim() === String(jp.id).trim());
+                                  return { name: jpCust?.name || jp.name || jp.id, id: jp.id };
+                                });
+                                const guarantorCust = c.guarantor ? customers.find(cu => String(cu.id).trim() === String(c.guarantor.id).trim()) : null;
+                                const doc = await generateContractStatementPDF({
+                                  type: 'contract',
+                                  contractId: c.id, unitId: c.unitId, status: c.status || 'active',
+                                  contractDate: c.contractDate || c.date || '',
+                                  totalPrice: c.totalPrice, downPayment: Number(c.totalPrice) * (Number(c.downPayment || 0) / 100),
+                                  downPaymentPercent: c.downPayment, numberOfInstallments: c.installments, perPayment: c.perPayment,
+                                  customerName: c.customerName || cust?.name, customerId: c.customerId, customerPhone: cust?.phone,
+                                  customerEmail: cust?.email, customerNationalId: cust?.nationalId,
+                                  jointPurchasers: jpNames, guarantorName: guarantorCust?.name || c.guarantor?.name,
+                                  buildingName: unit?.buildingName, floorNumber: unit?.floor, unitType: unit?.type,
+                                  unitArea: unit?.area, unitView: unit?.view, basePrice: unit?.price, finishedPrice: unit?.finishedPrice,
+                                  salesName: agent?.name || c.salesName, salesId: c.salesId, brokerName: broker?.name,
+                                  commissionRate: comm?.commissionRate, commissionAmount: comm?.commissionAmount,
+                                  installments: linkedInstallments, layoutImageUrl: layoutUrl
+                                });
+                                handlePreviewPDF(doc, `Statement-${c.unitId}-${Date.now()}.pdf`);
+                              } catch (e) { console.error('Statement generation failed:', e); alert('Failed to generate statement: ' + e.message); }
+                            }}
+                          >
+                            <IonIcon icon={printOutline} slot="start" /> Print Statement
+                          </IonButton>
                         </div>
 
                         {/* Joint Purchasers Nested Section */}
@@ -11307,13 +12738,14 @@ const App = () => {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                               <div><span style={{ color: '#64748B'   , fontSize: '11px' }}>Sold By:</span><br /><strong style={{ color: '#1E293B' }}>{sale?.name || 'N/A'}</strong></div>
                               <div><span style={{ color: '#64748B'   , fontSize: '11px' }}>Sales ID:</span><br /><strong style={{ color: '#1E293B' }}>{viewingContract.salesId || '-'}</strong></div>
+                              {sale?.brokerId && (() => { const broker = brokers.find(b => String(b.id) === String(sale.brokerId)); return broker ? <div style={{ gridColumn: 'span 2' }}><span style={{ color: '#64748B', fontSize: '11px' }}>Broker Company:</span><br /><strong style={{ color: '#c5a059' }}>{broker.name}</strong></div> : null; })()}
                               {sale?.phone && <div style={{ gridColumn: 'span 2' }}><span style={{ color: '#64748B'   , fontSize: '11px' }}>Agent Contact:</span><br /><strong style={{ color: '#1E293B' }}>{sale.phone}</strong></div>}
                             </div>
                           );
                         })()}
                         {canAction('edit') && (
                           <div style={{ marginTop: '15px', textAlign: 'right' }}>
-                            <IonButton size="small" fill="outline" style={{ '--color': '#FFFFFF', '--background': '#2563EB', color: '#FFFFFF' }} onClick={() => setShowChangeSalesAlert(true)}>
+                            <IonButton size="small" fill="outline" style={{ '--color': '#FFFFFF', '--background': '#2563EB', color: '#FFFFFF' }} onClick={() => { setSelectedSalesAgentId(viewingContract?.salesId || ''); setShowChangeSalesAlert(true); }}>
                               <IonIcon icon={personAddOutline} slot="start" /> Change Sales Agent
                             </IonButton>
                           </div>
@@ -11325,17 +12757,22 @@ const App = () => {
                         <h3 style={{ color: '#1E293B', marginTop: 0, marginBottom: '15px', fontSize: '1.1rem' }}>Projected Payment Schedule</h3>
                         {(() => {
                           const total = Number(viewingContract.totalPrice);
-                          const down = total * (Number(viewingContract.downPayment || 0) / 100);
+                          // Calculate down payment from actual installment data
+                          const linkedIns = installments.filter(i => i.contractId === viewingContract.id || String(i.unitId).trim() === String(viewingContract.unitId).trim());
+                          const dpInstallments = linkedIns.filter(i => i.type === 'Down Payment');
+                          const actualDP = dpInstallments.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+                          const down = actualDP > 0 ? actualDP : total * (Number(viewingContract.downPayment || 0) / 100);
+                          const dpPercent = total > 0 ? ((down / total) * 100).toFixed(1) : 0;
                           const remaining = total - down;
-                          const freq = viewingContract.frequency === 'quarterly' ? 4 : viewingContract.frequency === 'biannual' ? 2 : 1;
-                          const numInstallments = Number(viewingContract.years || 0) * freq;
+                          const chequeInstallments = linkedIns.filter(i => i.type !== 'Down Payment');
+                          const numInstallments = chequeInstallments.length || (Number(viewingContract.years || 0) * (viewingContract.frequency === 'quarterly' ? 4 : viewingContract.frequency === 'biannual' ? 2 : 1));
                           const installmentAmount = numInstallments > 0 ? remaining / numInstallments : 0;
                           return (
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                              <div style={{ borderBottom: '1px solid #333', paddingBottom: '10px' }}><span style={{ color: '#64748B'   , fontSize: '11px' }}>Down Payment ({viewingContract.downPayment}%):</span><br /><strong style={{ color: '#2563EB', fontSize: '1.2rem' }}>${down.toLocaleString()}</strong></div>
-                              <div style={{ borderBottom: '1px solid #333', paddingBottom: '10px' }}><span style={{ color: '#64748B'   , fontSize: '11px' }}>Remaining Balance:</span><br /><strong style={{ color: '#1E293B', fontSize: '1.2rem' }}>${remaining.toLocaleString()}</strong></div>
+                              <div style={{ borderBottom: '1px solid #333', paddingBottom: '10px' }}><span style={{ color: '#64748B'   , fontSize: '11px' }}>Down Payment ({dpPercent}%):</span><br /><strong style={{ color: '#2563EB', fontSize: '1.2rem' }}>{formatCurrency(down)}</strong></div>
+                              <div style={{ borderBottom: '1px solid #333', paddingBottom: '10px' }}><span style={{ color: '#64748B'   , fontSize: '11px' }}>Remaining Balance:</span><br /><strong style={{ color: '#1E293B', fontSize: '1.2rem' }}>{formatCurrency(remaining)}</strong></div>
                               <div><span style={{ color: '#64748B'   , fontSize: '11px' }}>Installments:</span><br /><strong style={{ color: '#1E293B' }}>{numInstallments || '-'} payments</strong></div>
-                              <div><span style={{ color: '#64748B'   , fontSize: '11px' }}>Per Payment:</span><br /><strong style={{ color: '#DC2626', fontSize: '1.1rem' }}>${installmentAmount.toLocaleString()}</strong></div>
+                              <div><span style={{ color: '#64748B'   , fontSize: '11px' }}>Per Payment:</span><br /><strong style={{ color: '#DC2626', fontSize: '1.1rem' }}>{formatCurrency(installmentAmount)}</strong></div>
                             </div>
                           );
                         })()}
@@ -11344,8 +12781,24 @@ const App = () => {
                       {/* --- LINKED INSTALLMENTS BY UNIT ID --- */}
                       <div style={{ background: 'var(--app-bg-card)', borderRadius: '16px', padding: '20px', marginBottom: '15px', borderLeft: '4px solid #e17055', border: '1px solid #E2E8F0', borderLeftWidth: '4px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', gap: '10px', flexWrap: 'wrap' }}>
-                          <h3 style={{ color: '#DC2626', margin: 0, fontSize: '1.1rem' }}>Installments (Unit: {viewingContract.unitId})</h3>
-                          <div style={{ display: 'flex', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <h3 style={{ color: '#DC2626', margin: 0, fontSize: '1.1rem' }}>Installments (Unit: {viewingContract.unitId})</h3>
+                            {contractInstallmentsEditMode && (
+                              <span style={{ background: 'rgba(220,38,38,0.15)', color: '#DC2626', fontSize: '0.72rem', fontWeight: '800', padding: '3px 10px', borderRadius: '20px', border: '1px solid rgba(220,38,38,0.3)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>✏️ EDIT MODE</span>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            {!contractInstallmentsEditMode ? (
+                              <IonButton size="small" fill="outline" style={{ '--color': '#DC2626', '--border-color': '#DC2626', color: '#DC2626', '--border-radius': '10px', fontWeight: 'bold' }} onClick={enterContractInstallmentsEditMode}>
+                                <IonIcon icon={createOutline} slot="start" />
+                                Edit Mode
+                              </IonButton>
+                            ) : (
+                              <IonButton size="small" fill="outline" style={{ '--color': '#64748B', '--border-color': '#64748B', color: '#64748B', '--border-radius': '10px', fontWeight: 'bold' }} onClick={() => { setContractInstallmentsEditMode(false); setContractInstallmentEdits({}); }}>
+                                <IonIcon icon={close} slot="start" />
+                                Cancel Edit
+                              </IonButton>
+                            )}
                             <IonButton size="small" fill="outline" style={{ '--color': '#FFFFFF', '--background': '#475569', color: '#FFFFFF', '--border-radius': '10px', fontWeight: 'bold' }}  onClick={() => {
                               setFlashFillContractOptions({
                                 includePaid: false,
@@ -11363,6 +12816,8 @@ const App = () => {
                             <IonButton size="small" fill="solid" style={{ '--background': '#B8860B', '--color': '#FFFFFF', '--border-radius': '10px', fontWeight: 'bold' }} onClick={() => {
                               const linked = installments.filter(ins => String(ins.unitId).trim() === String(viewingContract.unitId).trim() && ins.paymentMethod === 'Cheque' && ins.chequeNumber);
                               setChequeCustodySelection(linked.map(ins => ins.id));
+                              const received = window.confirm('هل تم استلام الشيكات من العميل؟\nHave cheques been received from the customer?');
+                              setChequeCustodyMarkReceived(received);
                               setShowChequeCustody(true);
                             }}>
                               <IonIcon icon={printOutline} slot="start" />
@@ -11548,21 +13003,98 @@ const App = () => {
                                   </thead>
                                   <tbody>
                                     {linkedInstallments.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate)).map(ins => {
+                                      const editRow = contractInstallmentEdits[ins.id] || {};
+                                      const isEditing = contractInstallmentsEditMode;
 
                                       return (
-                                        <tr key={ins.id} style={{ borderBottom: '1px solid #222' }}>
-                                          <td style={{ padding: '8px', color: '#1E293B' }}>{ins.type}</td>
-                                          <td style={{ padding: '8px', color: '#2563EB' }}>{formatExcelDate(ins.dueDate)}</td>
-                                          <td style={{ padding: '8px' }}>
-                                            <div style={{ fontWeight: 'bold', color: '#1E293B' }}>{formatCurrency(ins.amount)}</div>
-                                            <div style={{ display: 'flex', flexDirection: 'column', fontSize: '0.75rem', marginTop: '4px' }}>
-                                              <span style={{ color: '#2563EB' }}>Paid: {formatCurrency(ins.paidAmount || 0)}</span>
-                                              <span style={{ color: (ins.amount - (ins.paidAmount || 0)) > 1 ? '#DC2626' : '#2563EB' }}>Rest: {formatCurrency(Math.max(0, ins.amount - (ins.paidAmount || 0)))}</span>
-                                            </div>
+                                        <tr key={ins.id} style={{ borderBottom: '1px solid #222', background: isEditing ? 'rgba(220,38,38,0.04)' : 'transparent', transition: 'background 0.2s' }}>
+                                          <td style={{ padding: '6px' }}>
+                                            {isEditing ? (
+                                              <select
+                                                value={editRow.type || ins.type}
+                                                onChange={e => setContractInstallmentEdits(prev => ({ ...prev, [ins.id]: { ...prev[ins.id], type: e.target.value } }))}
+                                                style={{ background: '#1e293b', color: '#fff', border: '1px solid #475569', borderRadius: '6px', padding: '4px 6px', fontSize: '0.8rem', width: '100%' }}
+                                              >
+                                                <option value="Down Payment">Down Payment</option>
+                                                <option value="Installment">Installment</option>
+                                                <option value="Final Payment">Final Payment</option>
+                                                <option value="Maintenance">Maintenance</option>
+                                                <option value="Other">Other</option>
+                                              </select>
+                                            ) : (
+                                              <span style={{ color: '#1E293B' }}>{ins.type}</span>
+                                            )}
                                           </td>
-                                          <td style={{ padding: '8px', color: '#64748B', fontSize: '0.75rem' }}>{ins.chequeNumber || '-'}</td>
-                                          <td style={{ padding: '8px', color: '#64748B', fontSize: '0.75rem' }}>{ins.bank || '-'}</td>
-                                          <td style={{ padding: '8px' }}>
+                                          <td style={{ padding: '6px' }}>
+                                            {isEditing ? (
+                                              <input
+                                                type="date"
+                                                value={editRow.dueDate || ins.dueDate || ''}
+                                                onChange={e => setContractInstallmentEdits(prev => ({ ...prev, [ins.id]: { ...prev[ins.id], dueDate: e.target.value } }))}
+                                                style={{ background: '#1e293b', color: '#93c5fd', border: '1px solid #475569', borderRadius: '6px', padding: '4px 6px', fontSize: '0.8rem', width: '100%' }}
+                                              />
+                                            ) : (
+                                              <span style={{ color: '#2563EB' }}>{formatExcelDate(ins.dueDate)}</span>
+                                            )}
+                                          </td>
+                                          <td style={{ padding: '6px' }}>
+                                            {isEditing ? (
+                                              <input
+                                                type="number"
+                                                value={editRow.amount !== undefined ? editRow.amount : ins.amount}
+                                                onChange={e => setContractInstallmentEdits(prev => ({ ...prev, [ins.id]: { ...prev[ins.id], amount: e.target.value } }))}
+                                                style={{ background: '#1e293b', color: '#f1f5f9', border: '1px solid #475569', borderRadius: '6px', padding: '4px 6px', fontSize: '0.8rem', width: '100%', minWidth: '90px' }}
+                                              />
+                                            ) : (
+                                              <div>
+                                                <div style={{ fontWeight: 'bold', color: '#1E293B' }}>{formatCurrency(ins.amount)}</div>
+                                                <div style={{ display: 'flex', flexDirection: 'column', fontSize: '0.75rem', marginTop: '4px' }}>
+                                                  <span style={{ color: '#2563EB' }}>Paid: {formatCurrency(ins.paidAmount || 0)}</span>
+                                                  <span style={{ color: (ins.amount - (ins.paidAmount || 0)) > 1 ? '#DC2626' : '#2563EB' }}>Rest: {formatCurrency(Math.max(0, ins.amount - (ins.paidAmount || 0)))}</span>
+                                                  {(() => {
+                                                    const rest = Math.max(0, ins.amount - (ins.paidAmount || 0));
+                                                    if (rest <= 0) return null;
+                                                    const fee = calcLateFeeApp(ins);
+                                                    if (ins.lateFeeWaived) return <span style={{ color: '#22c55e', fontSize: '0.7rem' }}>Fee: Waived ✓</span>;
+                                                    if (fee.total <= 0) return null;
+                                                    return (
+                                                      <>
+                                                        <span style={{ color: '#f97316', fontWeight: '700' }}>Fee: {formatCurrency(Math.round(fee.total))}</span>
+                                                        <span style={{ color: '#ef4444', fontWeight: '800', borderTop: '1px dashed rgba(239,68,68,0.3)', paddingTop: '2px', marginTop: '2px' }}>Total Due: {formatCurrency(Math.round(rest + fee.total))}</span>
+                                                      </>
+                                                    );
+                                                  })()}
+                                                </div>
+                                              </div>
+                                            )}
+                                          </td>
+                                          <td style={{ padding: '6px' }}>
+                                            {isEditing ? (
+                                              <input
+                                                type="text"
+                                                value={editRow.chequeNumber !== undefined ? editRow.chequeNumber : (ins.chequeNumber || '')}
+                                                onChange={e => setContractInstallmentEdits(prev => ({ ...prev, [ins.id]: { ...prev[ins.id], chequeNumber: e.target.value } }))}
+                                                placeholder="Chq #"
+                                                style={{ background: '#1e293b', color: '#f1f5f9', border: '1px solid #475569', borderRadius: '6px', padding: '4px 6px', fontSize: '0.8rem', width: '100%' }}
+                                              />
+                                            ) : (
+                                              <span style={{ color: '#64748B', fontSize: '0.75rem' }}>{ins.chequeNumber || '-'}</span>
+                                            )}
+                                          </td>
+                                          <td style={{ padding: '6px' }}>
+                                            {isEditing ? (
+                                              <input
+                                                type="text"
+                                                value={editRow.bank !== undefined ? editRow.bank : (ins.bank || '')}
+                                                onChange={e => setContractInstallmentEdits(prev => ({ ...prev, [ins.id]: { ...prev[ins.id], bank: e.target.value } }))}
+                                                placeholder="Bank"
+                                                style={{ background: '#1e293b', color: '#f1f5f9', border: '1px solid #475569', borderRadius: '6px', padding: '4px 6px', fontSize: '0.8rem', width: '100%' }}
+                                              />
+                                            ) : (
+                                              <span style={{ color: '#64748B', fontSize: '0.75rem' }}>{ins.bank || '-'}</span>
+                                            )}
+                                          </td>
+                                          <td style={{ padding: '6px' }}>
                                             <span style={{
                                               padding: '3px 6px',
                                               borderRadius: '4px',
@@ -11573,19 +13105,23 @@ const App = () => {
                                               {ins.status}
                                             </span>
                                           </td>
-                                          <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
-                                            <IonButton size="small" fill="clear" style={{ '--color': '#2563EB' }} onClick={() => { setEditingInstallment(ins); }}>
-                                              <IonIcon icon={create} slot="icon-only" />
-                                            </IonButton>
-                                            <IonButton size="small" fill="clear" style={{ '--color': '#FFFFFF', '--background': '#DC2626', color: '#FFFFFF' }} onClick={async () => {
-                                              if (!window.confirm(`Delete installment "${ins.type}" (${formatCurrency(ins.amount)}) due ${formatExcelDate(ins.dueDate)}?`)) return;
-                                              const allInstallments = await getInstallments();
-                                              const filtered = allInstallments.filter(i => i.id !== ins.id);
-                                              await saveInstallments(filtered);
-                                              setInstallments(filtered);
-                                            }}>
-                                              <IonIcon icon={trash} slot="icon-only" />
-                                            </IonButton>
+                                          <td style={{ padding: '6px', whiteSpace: 'nowrap' }}>
+                                            {!isEditing && (
+                                              <>
+                                                <IonButton size="small" fill="clear" style={{ '--color': '#2563EB' }} onClick={() => { setEditingInstallment(ins); }}>
+                                                  <IonIcon icon={create} slot="icon-only" />
+                                                </IonButton>
+                                                <IonButton size="small" fill="clear" style={{ '--color': '#FFFFFF', '--background': '#DC2626', color: '#FFFFFF' }} onClick={async () => {
+                                                  if (!window.confirm(`Delete installment "${ins.type}" (${formatCurrency(ins.amount)}) due ${formatExcelDate(ins.dueDate)}?`)) return;
+                                                  const allInstallments = await getInstallments();
+                                                  const filtered = allInstallments.filter(i => i.id !== ins.id);
+                                                  await saveInstallments(filtered);
+                                                  setInstallments(filtered);
+                                                }}>
+                                                  <IonIcon icon={trash} slot="icon-only" />
+                                                </IonButton>
+                                              </>
+                                            )}
                                           </td>
                                         </tr>
                                       );
@@ -11593,6 +13129,27 @@ const App = () => {
                                   </tbody>
                                 </table>
                               </div>
+                              {/* Save All Changes button — only in edit mode */}
+                              {contractInstallmentsEditMode && (
+                                <div style={{ marginTop: '16px', display: 'flex', gap: '10px' }}>
+                                  <IonButton
+                                    expand="block"
+                                    style={{ flex: 1, '--background': 'linear-gradient(135deg, #16a34a, #15803d)', '--color': '#FFFFFF', '--border-radius': '12px', fontWeight: '800', fontSize: '1rem', letterSpacing: '0.5px', boxShadow: '0 4px 15px rgba(22,163,74,0.35)' }}
+                                    onClick={saveAllContractInstallmentEdits}
+                                  >
+                                    <IonIcon icon={saveOutline} slot="start" />
+                                    Save All Changes
+                                  </IonButton>
+                                  <IonButton
+                                    expand="block"
+                                    fill="outline"
+                                    style={{ '--color': '#64748B', '--border-color': '#64748B', '--border-radius': '12px', flex: '0 0 auto' }}
+                                    onClick={() => { setContractInstallmentsEditMode(false); setContractInstallmentEdits({}); }}
+                                  >
+                                    Cancel
+                                  </IonButton>
+                                </div>
+                              )}
                             </>
                           );
                         })()}
@@ -11616,32 +13173,52 @@ const App = () => {
                           </IonButton>
                         </>
                       ) : viewingContract.status === 'terminated' ? (
-                        <div style={{
-                          background: 'rgba(220, 38, 38, 0.05)',
-                          border: '1px solid rgba(220, 38, 38, 0.15)',
-                          borderRadius: '12px',
-                          padding: '15px 20px',
-                          marginTop: '10px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '10px'
-                        }}>
-                          <IonIcon icon={closeCircleOutline} style={{ color: '#DC2626', fontSize: '20px' }} />
-                          <span style={{ color: '#DC2626', fontSize: '0.85rem', fontWeight: '600' }}>This contract has been terminated. All data is preserved for reference.</span>
+                        <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <div style={{
+                            background: 'rgba(220, 38, 38, 0.05)',
+                            border: '1px solid rgba(220, 38, 38, 0.15)',
+                            borderRadius: '12px',
+                            padding: '15px 20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px'
+                          }}>
+                            <IonIcon icon={closeCircleOutline} style={{ color: '#DC2626', fontSize: '20px' }} />
+                            <span style={{ color: '#DC2626', fontSize: '0.85rem', fontWeight: '600' }}>{t('contracts.contractTerminatedMessage')}</span>
+                          </div>
+                          <IonButton
+                            expand="block"
+                            fill="solid"
+                            style={{ '--background': '#7F1D1D', '--color': '#FFFFFF', color: '#FFFFFF', '--border-radius': '12px', fontWeight: '800', letterSpacing: '0.5px' }}
+                            onClick={() => handleDeleteContract(viewingContract)}
+                          >
+                            <IonIcon icon={trashOutline} slot="start" />
+                            {t('contracts.deletePermanently')}
+                          </IonButton>
                         </div>
                       ) : (
-                        <div style={{
-                          background: 'rgba(230, 126, 34, 0.05)',
-                          border: '1px solid rgba(230, 126, 34, 0.15)',
-                          borderRadius: '12px',
-                          padding: '15px 20px',
-                          marginTop: '10px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '10px'
-                        }}>
-                          <IonIcon icon={swapHorizontalOutline} style={{ color: '#E67E22', fontSize: '20px' }} />
-                          <span style={{ color: '#E67E22', fontSize: '0.85rem', fontWeight: '600' }}>This contract has been resold to {viewingContract.resoldTo || 'a new customer'}. All data is preserved for reference.</span>
+                        <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <div style={{
+                            background: 'rgba(230, 126, 34, 0.05)',
+                            border: '1px solid rgba(230, 126, 34, 0.15)',
+                            borderRadius: '12px',
+                            padding: '15px 20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px'
+                          }}>
+                            <IonIcon icon={swapHorizontalOutline} style={{ color: '#E67E22', fontSize: '20px' }} />
+                            <span style={{ color: '#E67E22', fontSize: '0.85rem', fontWeight: '600' }}>{t('contracts.contractResoldMessage', { name: viewingContract.resoldTo || 'a new customer' })}</span>
+                          </div>
+                          <IonButton
+                            expand="block"
+                            fill="solid"
+                            style={{ '--background': '#7F1D1D', '--color': '#FFFFFF', color: '#FFFFFF', '--border-radius': '12px', fontWeight: '800', letterSpacing: '0.5px' }}
+                            onClick={() => handleDeleteContract(viewingContract)}
+                          >
+                            <IonIcon icon={trashOutline} slot="start" />
+                            {t('contracts.deletePermanently')}
+                          </IonButton>
                         </div>
                       )}
                     </div>
@@ -11746,6 +13323,14 @@ const App = () => {
                             .filter(c => chequeCustodySelection.includes(c.id))
                             .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
 
+                          // Mark selected cheques as Collected if user confirmed receipt
+                          if (chequeCustodyMarkReceived) {
+                            for (const chq of selectedCheques) {
+                              await updateInstallment(chq.id, { chequeStatus: 'Collected' });
+                            }
+                            await refreshData();
+                          }
+
                           const cust = customers.find(c => String(c.id).trim() === String(viewingContract.customerId).trim());
                           const customerName = cust?.name || viewingContract.customerName || viewingContract.customerId || 'Unknown';
 
@@ -11762,7 +13347,9 @@ const App = () => {
                         }}
                       >
                         <IonIcon icon={printOutline} slot="start" />
-                        طباعة حافظة ({selectedCount} شيك)
+                        {chequeCustodyMarkReceived
+                          ? `استلام وطباعة حافظة (${selectedCount} شيك)`
+                          : `طباعة حافظة (${selectedCount} شيك)`}
                       </IonButton>
                     </div>
                   );
@@ -12049,6 +13636,40 @@ const App = () => {
                               <IonButton size="small" fill="clear" style={{ '--color': '#FFFFFF', '--background': '#475569', color: '#FFFFFF' }} onClick={() => handleViewLayout(viewingOffer.unitId)}>
                                 <IonIcon icon={mapOutline} slot="start" /> Layout
                               </IonButton>
+                              <IonButton size="small" fill="clear" style={{ '--color': '#FFFFFF', '--background': '#1E6F3B', color: '#FFFFFF' }} onClick={async () => {
+                                try {
+                                  const o = viewingOffer;
+                                  const unit = buildings.flatMap(b => (b.units || []).map(u => ({ ...u, buildingName: b.name }))).find(u => u.unitId === o.unitId);
+                                  const cust = customers.find(cu => cu.id === o.customerId);
+                                  const agent = sales.find(s => String(s.id).trim() === String(o.salesId || '').trim());
+                                  const offerInstallments = (o.installments || []).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+                                  let layoutUrl = null;
+                                  try { if (window.electronAPI?.getUnitLayout) layoutUrl = await window.electronAPI.getUnitLayout(o.unitId); } catch(e) {}
+                                  const jpNames = (o.jointPurchasers || []).map(jp => {
+                                    const jpCust = customers.find(cu => String(cu.id).trim() === String(jp.id).trim());
+                                    return { name: jpCust?.name || jp.name || jp.id, id: jp.id };
+                                  });
+                                  const guarantorCust = o.guarantor ? customers.find(cu => String(cu.id).trim() === String(o.guarantor.id).trim()) : null;
+                                  const doc = await generateContractStatementPDF({
+                                    type: 'offer',
+                                    contractId: o.id, unitId: o.unitId, status: o.status || 'active',
+                                    offerDate: o.date || '', totalPrice: o.totalPrice || o.offerPrice || 0,
+                                    downPayment: Number(o.totalPrice || o.offerPrice || 0) * (Number(o.downPayment || 0) / 100),
+                                    downPaymentPercent: o.downPayment, numberOfInstallments: o.numberOfInstallments, perPayment: o.perPayment,
+                                    customerName: o.customerName || cust?.name, customerId: o.customerId, customerPhone: cust?.phone,
+                                    customerEmail: cust?.email, customerNationalId: cust?.nationalId,
+                                    jointPurchasers: jpNames, guarantorName: guarantorCust?.name || o.guarantor?.name,
+                                    buildingName: unit?.buildingName, floorNumber: unit?.floor, unitType: unit?.type,
+                                    unitArea: unit?.area, unitView: unit?.view, basePrice: unit?.price, finishedPrice: unit?.finishedPrice,
+                                    salesName: agent?.name, salesId: o.salesId,
+                                    installments: offerInstallments, layoutImageUrl: layoutUrl,
+                                    offerPrice: o.offerPrice, offerStatus: o.status
+                                  });
+                                  handlePreviewPDF(doc, `OfferStatement-${o.unitId}-${Date.now()}.pdf`);
+                                } catch (e) { console.error('Offer statement failed:', e); alert('Failed to generate statement: ' + e.message); }
+                              }}>
+                                <IonIcon icon={printOutline} slot="start" /> Print Statement
+                              </IonButton>
                             </div>
                             <p style={{ color: '#64748B', marginTop: '4px' }}>{unit?.buildingName || 'Unknown Project'}</p>
                           </div>
@@ -12145,6 +13766,7 @@ const App = () => {
                               <div>
                                 <div style={{ color: '#1E293B', fontWeight: 'bold' }}>{sale?.name || 'N/A'}</div>
                                 <div style={{ color: '#64748B', fontSize: '0.8rem', marginTop: '4px' }}>ID: {viewingOffer.salesId || '-'} {sale?.phone ? `| ${sale.phone}` : ''}</div>
+                                {sale?.brokerId && (() => { const broker = brokers.find(b => String(b.id) === String(sale.brokerId)); return broker ? <div style={{ color: '#c5a059', fontSize: '0.8rem', fontWeight: '700', marginTop: '4px' }}>🏢 {broker.name}</div> : null; })()}
                                 {sale?.phone && (
                                   <IonButton fill="clear" size="small" style={{ '--padding-start': '0', height: '24px', marginTop: '5px' }} onClick={() => window.open(`tel:${sale.phone}`, '_system')}>
                                     <IonIcon icon={callOutline} slot="start" style={{ fontSize: '14px' }} /> Call Agent
@@ -12333,12 +13955,8 @@ const App = () => {
                         <h3 style={{ color: '#1E293B', marginTop: 0, fontSize: '1.1rem', marginBottom: '20px' }}>Financial Breakdown</h3>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' }}>
                           <div>
-                            <span style={{ color: '#64748B'   , fontSize: '11px' }}>BASE UNIT PRICE:</span><br />
-                            <strong style={{ color: '#1E293B' }}>{formatCurrency(unit?.price || 0)}</strong>
-                          </div>
-                          <div>
-                            <span style={{ color: '#64748B'   , fontSize: '11px' }}>FINISHED PRICE:</span><br />
-                            <strong style={{ color: '#2563EB' }}>{formatCurrency(unit?.finishedPrice || 0)}</strong>
+                            <span style={{ color: '#64748B'   , fontSize: '11px' }}>{viewingOffer.priceType === 'finished' ? 'FINISHED PRICE:' : 'BASE UNIT PRICE:'}</span><br />
+                            <strong style={{ color: viewingOffer.priceType === 'finished' ? '#2563EB' : '#1E293B' }}>{formatCurrency(viewingOffer.priceType === 'finished' ? (unit?.finishedPrice || unit?.price || 0) : (unit?.price || 0))}</strong>
                           </div>
                           <div>
                             <span style={{ color: '#64748B'   , fontSize: '11px' }}>DISCOUNT:</span><br />
@@ -12348,22 +13966,32 @@ const App = () => {
                             <span style={{ color: '#64748B'   , fontSize: '11px' }}>FINAL PRICE:</span><br />
                             <strong style={{ color: '#1E293B', fontSize: '1.2rem' }}>{formatCurrency(viewingOffer.finalPrice || viewingOffer.totalPrice || 0)}</strong>
                           </div>
-                          <div style={{ borderTop: '1px solid #333', paddingTop: '10px' }}>
-                            <span style={{ color: '#64748B'   , fontSize: '11px' }}>DOWN PAYMENT ({viewingOffer.downPayment}%):</span><br />
-                            <strong style={{ color: '#2563EB', fontSize: '1.2rem' }}>{formatCurrency(viewingOffer.downPaymentAmount || 0)}</strong>
-                          </div>
-                          {Number(viewingOffer.reservationAmount || 0) > 0 && (
-                            <>
-                              <div style={{ borderTop: '1px solid #333', paddingTop: '10px' }}>
-                                <span style={{ color: '#64748B', fontSize: '11px' }}>RESERVATION <span style={{ fontSize: '9px', color: '#94A3B8' }}>(PART OF DP)</span>:</span><br />
-                                <strong style={{ color: '#F59E0B', fontSize: '1rem' }}>{formatCurrency(Number(viewingOffer.reservationAmount))}</strong>
-                              </div>
-                              <div style={{ borderTop: '1px solid #333', paddingTop: '10px' }}>
-                                <span style={{ color: '#64748B', fontSize: '11px' }}>REMAINING DP:</span><br />
-                                <strong style={{ color: '#10B981', fontSize: '1rem' }}>{formatCurrency(Math.max(0, Number(viewingOffer.downPaymentAmount || 0) - Number(viewingOffer.reservationAmount || 0)))}</strong>
-                              </div>
-                            </>
-                          )}
+                          {(() => {
+                            const dpInstallment = (viewingOffer.installments || []).find(ins => (ins.type || '').toLowerCase().includes('down payment'));
+                            const dpAmount = dpInstallment ? Number(dpInstallment.amount || 0) : Number(viewingOffer.downPaymentAmount || 0);
+                            const finalP = Number(viewingOffer.finalPrice || viewingOffer.totalPrice || 0);
+                            const dpPercent = finalP > 0 ? Math.round((dpAmount / finalP) * 10000) / 100 : 0;
+                            return (
+                              <>
+                                <div style={{ borderTop: '1px solid #333', paddingTop: '10px' }}>
+                                  <span style={{ color: '#64748B'   , fontSize: '11px' }}>DOWN PAYMENT ({dpPercent}%):</span><br />
+                                  <strong style={{ color: '#2563EB', fontSize: '1.2rem' }}>{formatCurrency(dpAmount)}</strong>
+                                </div>
+                                {Number(viewingOffer.reservationAmount || 0) > 0 && (
+                                  <>
+                                    <div style={{ borderTop: '1px solid #333', paddingTop: '10px' }}>
+                                      <span style={{ color: '#64748B', fontSize: '11px' }}>RESERVATION <span style={{ fontSize: '9px', color: '#94A3B8' }}>(PART OF DP)</span>:</span><br />
+                                      <strong style={{ color: '#F59E0B', fontSize: '1rem' }}>{formatCurrency(Number(viewingOffer.reservationAmount))}</strong>
+                                    </div>
+                                    <div style={{ borderTop: '1px solid #333', paddingTop: '10px' }}>
+                                      <span style={{ color: '#64748B', fontSize: '11px' }}>REMAINING DP:</span><br />
+                                      <strong style={{ color: '#10B981', fontSize: '1rem' }}>{formatCurrency(Math.max(0, dpAmount - Number(viewingOffer.reservationAmount || 0)))}</strong>
+                                    </div>
+                                  </>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
 
@@ -12486,7 +14114,8 @@ const App = () => {
                             handleDeleteOffer(viewingOffer);
                             setViewingOffer(null);
                           }}>
-                            Delete Offer Permanently
+                            <IonIcon icon={trashOutline} slot="start" />
+                            {t('offers.deleteOfferPermanently')}
                           </IonButton>
                         )}
                       </div>
@@ -13013,7 +14642,10 @@ const App = () => {
                             </IonLabel>
                             <IonButton slot="end" fill="clear" style={{ '--color': '#FFFFFF', '--background': '#DC2626', color: '#FFFFFF' }} onClick={async () => {
                               const updated = await deleteInstallmentFeedback(selectedInstallmentForFeedback.id, fb.id);
-                              setSelectedInstallmentForFeedback(updated);
+                              if (updated) {
+                                setSelectedInstallmentForFeedback(updated);
+                                setInstallments(prev => prev.map(ins => ins.id === updated.id ? updated : ins));
+                              }
                               refreshData();
                             }}>
                               <IonIcon icon={trash} slot="icon-only" style={{ fontSize: '18px' }} />
@@ -13113,8 +14745,12 @@ const App = () => {
                         if (!feedbackText.trim()) return;
                         const updated = await addInstallmentFeedback(selectedInstallmentForFeedback.id, feedbackText);
                         setFeedbackText('');
-                        await refreshData();
-                        setSelectedInstallmentForFeedback(updated);
+                        if (updated) {
+                          // Immediately update both the modal view AND the feedback tab card timeline
+                          setSelectedInstallmentForFeedback(updated);
+                          setInstallments(prev => prev.map(ins => ins.id === updated.id ? updated : ins));
+                        }
+                        refreshData(); // Background full-sync (no await needed)
                       }}>{t('installments.savePayment')}</IonButton>
                     </div>
                   </div>
@@ -13294,9 +14930,8 @@ const App = () => {
               <IonContent className="ion-padding" style={{ '--background': 'var(--app-bg)', color: '#1E293B' }}>
                 <div style={{ padding: '20px' }}>
                   {selectedOfferForPayment && (() => {
-                    const dpRequired = Number(selectedOfferForPayment.downPaymentAmount) ||
-                      (Number(selectedOfferForPayment.finalPrice || selectedOfferForPayment.totalPrice) * (Number(selectedOfferForPayment.downPayment) / 100)) ||
-                      0;
+                    const dpInstallment = (selectedOfferForPayment.installments || []).find(ins => (ins.type || '').toLowerCase().includes('down payment'));
+                    const dpRequired = dpInstallment ? Number(dpInstallment.amount || 0) : (Number(selectedOfferForPayment.downPaymentAmount) || (Number(selectedOfferForPayment.finalPrice || selectedOfferForPayment.totalPrice) * (Number(selectedOfferForPayment.downPayment) / 100)) || 0);
                     const totalPaid = (selectedOfferForPayment.payments || []).reduce((sum, p) => {
                       // Cheque payments only count when cleared
                       const isCheque = p.paymentMethod === 'Cheque' || p.method === 'Cheque';
@@ -13725,7 +15360,7 @@ const App = () => {
               }}
               buildings={buildings}
               setBuildings={setBuildings}
-              installments={installments}
+              installments={filteredInstallments}
               customers={customers}
               offers={offers}
               contracts={contracts}
@@ -13734,6 +15369,9 @@ const App = () => {
               sales={sales}
               wallets={wallets}
               initialTab={reportTab}
+              updateInstallment={updateInstallment}
+              promptPassword={promptPassword}
+              getAppSecurity={getAppSecurity}
             />
 
             {/* --- OLD MODAL (Kept for safety, hidden) --- */}
@@ -14043,7 +15681,7 @@ const App = () => {
                     ) : (
                       <p style={{ color: '#64748B', fontStyle: 'italic', marginBottom: '8px' }}>{t('stakeholders.noGuarantorSet')}</p>
                     )}
-                    <h4 style={{ color: '#64748B', fontSize: '0.9rem', marginTop: '10px' }}>{editingStakeholders.guarantor ? t('stakeholders.changeGuarantor') || 'Change Guarantor' : t('stakeholders.setGuarantor')}</h4>
+                    <h4 style={{ color: '#64748B', fontSize: '0.9rem', marginTop: '10px' }}>{editingStakeholders.guarantor ? 'Change Guarantor' : 'Choose Guarantor'}</h4>
                     <IonSearchbar
                       placeholder={t('common.searchCustomerPlaceholder')}
                       value={guarantorSearchQuery}
@@ -14258,48 +15896,78 @@ const App = () => {
               buttons={noticeAlert.buttons}
             />
 
-            {/* --- CHANGE SALES AGENT ALERT --- */}
-            <IonAlert
-              isOpen={showChangeSalesAlert}
-              onDidDismiss={() => setShowChangeSalesAlert(false)}
-              header="Change Sales Agent / مندوب المبيعات"
-              subHeader="Select a sales agent for this contract"
-              inputs={[
-                {
-                  label: 'None / بدون مندوب',
-                  type: 'radio',
-                  value: '',
-                  checked: !viewingContract?.salesId
-                },
-                ...sales.map(s => ({
-                  label: s.name,
-                  type: 'radio',
-                  value: s.id,
-                  checked: String(s.id).trim() === String(viewingContract?.salesId || '').trim()
-                }))
-              ]}
-              buttons={[
-                { text: t('common.cancel'), role: 'cancel' },
-                {
-                  text: t('common.save'),
-                  handler: async (agentId) => {
-                    if (viewingContract) {
-                      try {
-                        const success = await updateContract(viewingContract.id, { salesId: agentId });
-                        if (success) {
+            {/* --- CHANGE SALES AGENT MODAL (with search) --- */}
+            <IonModal isOpen={showChangeSalesAlert} onDidDismiss={() => { setShowChangeSalesAlert(false); setSalesAgentSearchQuery(''); }}>
+              <IonHeader><IonToolbar style={{ '--background': '#1E293B', color: '#fff' }}>
+                <IonTitle>Change Sales Agent / مندوب المبيعات</IonTitle>
+                <IonButtons slot="end"><IonButton onClick={() => { setShowChangeSalesAlert(false); setSalesAgentSearchQuery(''); }} color="light">Close</IonButton></IonButtons>
+              </IonToolbar></IonHeader>
+              <IonContent style={{ '--background': 'var(--app-bg)' }}>
+                <div style={{ padding: '16px' }}>
+                  <p style={{ color: '#64748B', fontSize: '0.85rem', margin: '0 0 12px' }}>Select a sales agent for this contract</p>
+                  {/* Search bar */}
+                  <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', padding: '0 14px', border: '1px solid rgba(255,255,255,0.1)', marginBottom: '12px' }}>
+                    <IonIcon icon={searchOutline} style={{ color: '#64748B', fontSize: '18px', marginRight: '8px' }} />
+                    <input value={salesAgentSearchQuery} onChange={e => setSalesAgentSearchQuery(e.target.value)} placeholder="Search agent by name or ID..."
+                      style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--app-text)', fontSize: '0.9rem', outline: 'none', padding: '12px 0' }} />
+                    {salesAgentSearchQuery && (
+                      <span style={{ color: '#64748B', cursor: 'pointer', fontSize: '18px' }} onClick={() => setSalesAgentSearchQuery('')}>✕</span>
+                    )}
+                  </div>
+                  {/* Agent list */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '55vh', overflowY: 'auto' }}>
+                    {/* None option */}
+                    <div onClick={() => setSelectedSalesAgentId('')}
+                      style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', borderRadius: '8px', cursor: 'pointer',
+                        background: selectedSalesAgentId === '' ? 'rgba(197,160,89,0.15)' : 'rgba(255,255,255,0.03)',
+                        border: selectedSalesAgentId === '' ? '2px solid #c5a059' : '1px solid rgba(255,255,255,0.06)',
+                        transition: 'all 0.15s' }}>
+                      <div style={{ width: '18px', height: '18px', borderRadius: '50%', border: selectedSalesAgentId === '' ? '5px solid #c5a059' : '2px solid #64748B', flexShrink: 0 }} />
+                      <span style={{ color: selectedSalesAgentId === '' ? '#c5a059' : '#94A3B8', fontWeight: '700', fontSize: '0.9rem' }}>None / بدون مندوب</span>
+                    </div>
+                    {sales
+                      .filter(s => {
+                        if (!salesAgentSearchQuery) return true;
+                        const q = salesAgentSearchQuery.toLowerCase();
+                        return s.name.toLowerCase().includes(q) || String(s.id).includes(q);
+                      })
+                      .map(s => {
+                        const isSelected = String(selectedSalesAgentId) === String(s.id);
+                        return (
+                          <div key={s.id} onClick={() => setSelectedSalesAgentId(s.id)}
+                            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', borderRadius: '8px', cursor: 'pointer',
+                              background: isSelected ? 'rgba(197,160,89,0.15)' : 'rgba(255,255,255,0.03)',
+                              border: isSelected ? '2px solid #c5a059' : '1px solid rgba(255,255,255,0.06)',
+                              transition: 'all 0.15s' }}>
+                            <div style={{ width: '18px', height: '18px', borderRadius: '50%', border: isSelected ? '5px solid #c5a059' : '2px solid #64748B', flexShrink: 0 }} />
+                            <div>
+                              <span style={{ color: isSelected ? '#c5a059' : 'var(--app-text)', fontWeight: '700', fontSize: '0.9rem' }}>{s.name}</span>
+                              <span style={{ fontSize: '0.7rem', color: '#6c5ce7', marginLeft: '8px' }}>#{s.id}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                  {/* Action buttons */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <IonButton fill="outline" onClick={() => { setShowChangeSalesAlert(false); setSalesAgentSearchQuery(''); }}
+                      style={{ '--border-color': '#64748B', '--color': '#94A3B8', '--border-radius': '8px' }}>Cancel</IonButton>
+                    <IonButton onClick={async () => {
+                      if (viewingContract && selectedSalesAgentId !== null) {
+                        try {
+                          await updateContract(viewingContract.id, { salesId: selectedSalesAgentId });
                           const updatedContracts = await getContracts();
                           setContracts(updatedContracts);
                           const updatedView = updatedContracts.find(c => c.id === viewingContract.id);
                           if (updatedView) setViewingContract(updatedView);
-                        }
-                      } catch (e) {
-                        console.error("Change sales agent failed:", e);
+                        } catch (e) { console.error('Change sales agent failed:', e); }
                       }
-                    }
-                  }
-                }
-              ]}
-            />
+                      setShowChangeSalesAlert(false); setSalesAgentSearchQuery('');
+                    }} style={{ '--background': 'linear-gradient(135deg, #c5a059, #d4af37)', '--border-radius': '8px', '--color': '#000', fontWeight: '800' }}>Save</IonButton>
+                  </div>
+                </div>
+              </IonContent>
+            </IonModal>
 
             {/* --- UPDATE AVAILABLE MODAL --- */}
             <IonAlert
@@ -14318,9 +15986,19 @@ const App = () => {
                   handler: () => setShowUpdateModal(false)
                 },
                 {
-                  text: remoteVersion === 'PUSHED' || apkUrl ? t('update.updateNow') : t('update.requestFromOwner'),
+                  text: t('update.updateNow'),
                   handler: () => {
-                    if (apkUrl) {
+                    setShowUpdateModal(false);
+                    if (window.electronAPI) {
+                      // Desktop: use electron-updater for silent one-click update
+                      // If already downloaded, install immediately; otherwise check+download
+                      if (updateStatus === 'downloaded') {
+                        window.electronAPI.quitAndInstall();
+                      } else {
+                        handleCheckForUpdate();
+                        handleDownloadUpdate();
+                      }
+                    } else if (apkUrl) {
                       window.open(apkUrl, '_system');
                     } else if (remoteVersion !== 'PUSHED') {
                       handleRequestRemoteUpdate();
@@ -14358,1033 +16036,1384 @@ const App = () => {
             </IonModal>
 
             {/* --- SETTINGS MODAL --- */}
-            <IonModal isOpen={showSettingsModal} onDidDismiss={() => setShowSettingsModal(false)}>
-              <IonHeader>
-                <IonToolbar>
-                  <IonTitle>{t('settings.title')}</IonTitle>
-                  <IonButton slot="end" fill="clear" onClick={() => setShowSettingsModal(false)}>
-                    <IonIcon icon={close} />
-                  </IonButton>
-                </IonToolbar>
-              </IonHeader>
-              <IonContent className="ion-padding" style={{ '--background': 'var(--app-bg)', color: '#1E293B' }}>
-                <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '10px' }}>
-                  <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+            <IonModal isOpen={showSettingsModal} onDidDismiss={() => setShowSettingsModal(false)}
+              style={{ '--width': '100%', '--height': '100%', '--border-radius': '0' }}
+            >
+              {/* ─── FULL SCREEN SETTINGS SHELL ─── */}
+              <div style={{
+                display: 'flex', flexDirection: 'column', height: '100%',
+                background: 'var(--app-bg)', overflow: 'hidden'
+              }}>
 
-                    {/* VISIBLE ADMIN ACCESS BUTTON - Only for DYR */}
-                    {(loggedInUser?.name || '').toLowerCase() === 'dyr' && (
-                      <IonButton
-                        expand="block"
-                        fill="outline"
-                        style={{ '--color': '#FFFFFF', '--background': '#475569', color: '#FFFFFF', marginBottom: '20px', '--border-radius': '12px' }}
-                        onClick={() => {
-                          setShowSettingsModal(false);
-                          setShowAdminModal(true);
+                {/* ─── TOP HEADER BAR ─── */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '12px',
+                  padding: '14px 20px',
+                  background: appSettings.theme === 'dark'
+                    ? 'rgba(15,23,42,0.98)'
+                    : 'rgba(255,255,255,0.98)',
+                  borderBottom: appSettings.theme === 'dark'
+                    ? '1px solid rgba(255,255,255,0.07)'
+                    : '1px solid rgba(0,0,0,0.08)',
+                  backdropFilter: 'blur(20px)',
+                  zIndex: 10,
+                  flexShrink: 0
+                }}>
+                  <button
+                    onClick={() => setShowSettingsModal(false)}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      padding: '6px', borderRadius: '10px',
+                      color: appSettings.theme === 'dark' ? '#94A3B8' : '#64748B',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'background 0.15s'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(100,116,139,0.15)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                  >
+                    <IonIcon icon={chevronBack} style={{ fontSize: '22px' }} />
+                  </button>
+                  <div>
+                    <h2 style={{
+                      margin: 0, fontSize: '1.1rem', fontWeight: '800',
+                      color: appSettings.theme === 'dark' ? '#F1F5F9' : '#0F172A',
+                      letterSpacing: '-0.3px'
+                    }}>
+                      {settingsTab === 'layout' ? '🎨 Layout' :
+                       settingsTab === 'database' ? '🗄️ Database' :
+                       settingsTab === 'company' ? '🏢 Company' :
+                       settingsTab === 'security' ? '🔐 Security' : 'ℹ️ About App'}
+                    </h2>
+                    <p style={{
+                      margin: 0, fontSize: '0.7rem',
+                      color: appSettings.theme === 'dark' ? '#475569' : '#94A3B8'
+                    }}>Settings</p>
+                  </div>
+                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {settingsTab === 'database' && (
+                      <button
+                        onClick={handleSaveSetup}
+                        style={{
+                          background: '#2563EB', color: '#fff', border: 'none',
+                          borderRadius: '10px', padding: '8px 18px', fontWeight: '700',
+                          fontSize: '0.8rem', cursor: 'pointer', letterSpacing: '0.2px'
                         }}
-                      >
-                        <IonIcon icon={peopleOutline} slot="start" />
-                        {t('settings.ownerMonitor')}
-                      </IonButton>
+                      >Save</button>
                     )}
+                    {settingsTab === 'company' && loggedInUser?.rank === 'admin' && (
+                      <button
+                        onClick={() => {
+                          if (loggedInUser?.id) setUserBranding(loggedInUser.id, branding);
+                          alert('Company settings saved!');
+                        }}
+                        style={{
+                          background: '#2563EB', color: '#fff', border: 'none',
+                          borderRadius: '10px', padding: '8px 18px', fontWeight: '700',
+                          fontSize: '0.8rem', cursor: 'pointer'
+                        }}
+                      >Save</button>
+                    )}
+                  </div>
+                </div>
 
+                {/* ─── BOTTOM LAYOUT: SIDEBAR NAV + CONTENT ─── */}
+                <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
-                    {/* Language Section */}
-                    <div style={{ background: 'var(--app-bg-card)', borderRadius: '16px', padding: '20px', marginBottom: '20px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-                        <IonIcon icon={languageOutline} style={{ fontSize: '24px', color: '#2563EB' }} />
-                        <h3 style={{ margin: 0, color: '#1E293B' }}>{t('settings.language')}</h3>
-                      </div>
-                      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                        {getAvailableLanguages().map(lang => (
-                          <IonButton
-                            key={lang.code}
-                            fill={currentLang === lang.code ? 'solid' : 'outline'}
-                            color={currentLang === lang.code ? 'warning' : 'medium'}
-                            onClick={() => {
-                              setLanguage(lang.code);
-                              setCurrentLang(lang.code);
-                            }}
-                            style={{ '--border-radius': '12px' }}
-                          >
-                            {lang.nativeName}
-                          </IonButton>
-                        ))}
-                      </div>
-                    </div>
+                  {/* ─── LEFT SIDEBAR NAVIGATION ─── */}
+                  <div style={{
+                    width: isNativeMobile ? '72px' : '200px',
+                    flexShrink: 0,
+                    background: appSettings.theme === 'dark'
+                      ? 'rgba(15,23,42,0.95)'
+                      : 'rgba(248,250,252,0.98)',
+                    borderRight: appSettings.theme === 'dark'
+                      ? '1px solid rgba(255,255,255,0.06)'
+                      : '1px solid rgba(0,0,0,0.07)',
+                    padding: '16px 10px',
+                    display: 'flex', flexDirection: 'column', gap: '4px',
+                    overflowY: 'auto'
+                  }}>
+                    {[
+                      { id: 'layout', icon: moonOutline, label: 'Layout', emoji: '🎨' },
+                      { id: 'database', icon: cloudDownload, label: 'Database', emoji: '🗄️' },
+                      { id: 'company', icon: business, label: 'Company', emoji: '🏢' },
+                      { id: 'security', icon: shieldCheckmarkOutline, label: 'Security', emoji: '🔐' },
+                      { id: 'about', icon: informationCircleOutline, label: 'About', emoji: 'ℹ️' },
+                    ].map(tab => {
+                      const isActive = settingsTab === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          onClick={() => setSettingsTab(tab.id)}
+                          style={{
+                            display: 'flex',
+                            flexDirection: isNativeMobile ? 'column' : 'row',
+                            alignItems: 'center',
+                            gap: isNativeMobile ? '4px' : '10px',
+                            padding: isNativeMobile ? '10px 6px' : '11px 14px',
+                            borderRadius: '12px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            textAlign: isNativeMobile ? 'center' : 'left',
+                            width: '100%',
+                            transition: 'all 0.18s ease',
+                            background: isActive
+                              ? (appSettings.theme === 'dark' ? 'rgba(37,99,235,0.2)' : 'rgba(37,99,235,0.1)')
+                              : 'transparent',
+                            borderLeft: !isNativeMobile && isActive ? '3px solid #2563EB' : '3px solid transparent',
+                            color: isActive ? '#2563EB' : (appSettings.theme === 'dark' ? '#64748B' : '#94A3B8'),
+                          }}
+                        >
+                          <span style={{ fontSize: isNativeMobile ? '1.3rem' : '1.1rem', lineHeight: 1 }}>{tab.emoji}</span>
+                          <span style={{
+                            fontSize: isNativeMobile ? '0.55rem' : '0.8rem',
+                            fontWeight: isActive ? '700' : '600',
+                            letterSpacing: '0.1px',
+                            lineHeight: 1
+                          }}>{tab.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
 
-                    {/* Appearance Section */}
-                    <div style={{ background: 'var(--app-bg-card)', borderRadius: '16px', padding: '20px', marginBottom: '20px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-                        <IonIcon icon={moonOutline} style={{ fontSize: '24px', color: '#2563EB' }} />
-                        <h3 style={{ margin: 0, color: '#1E293B' }}>{t('settings.appearance')}</h3>
-                      </div>
+                  {/* ─── RIGHT CONTENT AREA ─── */}
+                  <div style={{
+                    flex: 1, overflowY: 'auto', padding: '20px'
+                  }}>
+                    <div style={{ maxWidth: '640px', margin: '0 auto' }}>
 
-                      <div style={{ marginBottom: '15px' }}>
-                        <label style={{ color: '#64748B', display: 'block', marginBottom: '8px' }}>{t('settings.theme')}</label>
-                        <div style={{ display: 'flex', gap: '10px' }}>
-                          <IonButton
-                            fill={appSettings.theme === 'dark' ? 'solid' : 'outline'}
-                            color={appSettings.theme === 'dark' ? 'warning' : 'medium'}
-                            onClick={() => {
-                              const defaultDarkBg = localStorage.getItem('app_bgVariant_dark') || 'deep-ocean';
-                              setAppSettings(prev => ({ ...prev, theme: 'dark', bgVariant: defaultDarkBg }));
-                              localStorage.setItem('app_theme', 'dark');
-                              localStorage.setItem('app_bgVariant', defaultDarkBg);
-                            }}
-                            style={{ '--border-radius': '12px' }}
-                          >
-                            <IonIcon icon={moonOutline} slot="start" />
-                            {t('settings.dark')}
-                          </IonButton>
-                          <IonButton
-                            fill={appSettings.theme === 'light' ? 'solid' : 'outline'}
-                            color={appSettings.theme === 'light' ? 'warning' : 'medium'}
-                            onClick={() => {
-                              const defaultLightBg = localStorage.getItem('app_bgVariant_light') || 'cloud-white';
-                              setAppSettings(prev => ({ ...prev, theme: 'light', bgVariant: defaultLightBg }));
-                              localStorage.setItem('app_theme', 'light');
-                              localStorage.setItem('app_bgVariant', defaultLightBg);
-                            }}
-                            style={{ '--border-radius': '12px' }}
-                          >
-                            <IonIcon icon={sunnyOutline} slot="start" />
-                            {t('settings.light')}
-                          </IonButton>
+                      {/* ══════ LAYOUT TAB ══════ */}
+                      {settingsTab === 'layout' && (
+                        <div style={{ animation: 'fadeInUp 0.2s ease' }}>
+
+                          {/* Language */}
+                          <div style={{
+                            background: 'var(--app-bg-card)', borderRadius: '18px',
+                            padding: '22px', marginBottom: '18px',
+                            boxShadow: appSettings.theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                              <IonIcon icon={languageOutline} style={{ fontSize: '22px', color: '#2563EB' }} />
+                              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '700', color: 'var(--app-text)' }}>{t('settings.language')}</h3>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                              {getAvailableLanguages().map(lang => (
+                                <IonButton
+                                  key={lang.code}
+                                  fill={currentLang === lang.code ? 'solid' : 'outline'}
+                                  color={currentLang === lang.code ? 'warning' : 'medium'}
+                                  onClick={() => { setLanguage(lang.code); setCurrentLang(lang.code); }}
+                                  style={{ '--border-radius': '12px' }}
+                                >
+                                  {lang.nativeName}
+                                </IonButton>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Theme */}
+                          <div style={{
+                            background: 'var(--app-bg-card)', borderRadius: '18px',
+                            padding: '22px', marginBottom: '18px',
+                            boxShadow: appSettings.theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                              <IonIcon icon={moonOutline} style={{ fontSize: '22px', color: '#2563EB' }} />
+                              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '700', color: 'var(--app-text)' }}>{t('settings.appearance')}</h3>
+                            </div>
+
+                            {/* Theme Toggle */}
+                            <label style={{ color: '#64748B', display: 'block', marginBottom: '10px', fontSize: '0.8rem', fontWeight: '600' }}>Theme</label>
+                            <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+                              {[
+                                { val: 'dark', icon: moonOutline, label: t('settings.dark') },
+                                { val: 'light', icon: sunnyOutline, label: t('settings.light') }
+                              ].map(opt => (
+                                <button
+                                  key={opt.val}
+                                  onClick={() => {
+                                    const defaultBg = localStorage.getItem(`app_bgVariant_${opt.val}`) || (opt.val === 'dark' ? 'deep-ocean' : 'cloud-white');
+                                    setAppSettings(prev => ({ ...prev, theme: opt.val, bgVariant: defaultBg }));
+                                    localStorage.setItem('app_theme', opt.val);
+                                    localStorage.setItem('app_bgVariant', defaultBg);
+                                  }}
+                                  style={{
+                                    flex: 1, padding: '14px', borderRadius: '14px', cursor: 'pointer',
+                                    background: appSettings.theme === opt.val
+                                      ? (opt.val === 'dark' ? 'linear-gradient(135deg,#1e293b,#0f172a)' : 'linear-gradient(135deg,#f0f9ff,#e0f2fe)')
+                                      : (appSettings.theme === 'dark' ? 'rgba(255,255,255,0.05)' : '#F1F5F9'),
+                                    border: appSettings.theme === opt.val ? '2px solid #2563EB' : '2px solid transparent',
+                                    color: appSettings.theme === opt.val ? (opt.val === 'dark' ? '#E2E8F0' : '#1E293B') : '#64748B',
+                                    fontWeight: '700', fontSize: '0.85rem',
+                                    transition: 'all 0.2s',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+                                  }}
+                                >
+                                  <IonIcon icon={opt.icon} style={{ fontSize: '18px' }} />
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+
+                            {/* Background Variants */}
+                            <label style={{ color: '#64748B', display: 'block', marginBottom: '12px', fontSize: '0.8rem', fontWeight: '600' }}>Background Style</label>
+                            <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '20px' }}>
+                              {(appSettings.theme === 'dark' ? [
+                                { id: 'deep-ocean', name: 'Deep Ocean', colors: ['#0f172a', '#1e293b', '#0f172a'] },
+                                { id: 'midnight-charcoal', name: 'Midnight', colors: ['#111827', '#1a1a2e', '#16213e'] },
+                                { id: 'obsidian-slate', name: 'Obsidian', colors: ['#0c0c1d', '#1a1b2e', '#0d1117'] },
+                                { id: 'dark-carbon', name: 'Carbon', colors: ['#171717', '#262626', '#171717'] },
+                                { id: 'deep-space', name: 'Space', colors: ['#020617', '#0f172a', '#1e1b4b'] },
+                              ] : [
+                                { id: 'cloud-white', name: 'Cloud White', colors: ['#f0f9ff', '#f8fafc', '#ffffff'] },
+                                { id: 'pearl', name: 'Pearl', colors: ['#f8fafc', '#f1f5f9', '#e2e8f0'] },
+                                { id: 'warm-sand', name: 'Warm Sand', colors: ['#fefce8', '#fef9ef', '#fffbeb'] },
+                                { id: 'soft-lavender', name: 'Lavender', colors: ['#faf5ff', '#f5f3ff', '#ede9fe'] },
+                                { id: 'arctic-mist', name: 'Arctic', colors: ['#ecfeff', '#f0fdfa', '#f0fdf4'] },
+                              ]).map(variant => {
+                                const isSelected = appSettings.bgVariant === variant.id;
+                                return (
+                                  <div key={variant.id} onClick={() => {
+                                    setAppSettings(prev => ({ ...prev, bgVariant: variant.id }));
+                                    localStorage.setItem('app_bgVariant', variant.id);
+                                    localStorage.setItem(`app_bgVariant_${appSettings.theme}`, variant.id);
+                                  }} style={{
+                                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
+                                    cursor: 'pointer', transition: 'transform 0.15s',
+                                    transform: isSelected ? 'scale(1.1)' : 'scale(1)'
+                                  }}>
+                                    <div style={{
+                                      width: '44px', height: '44px', borderRadius: '50%',
+                                      background: `linear-gradient(135deg,${variant.colors[0]},${variant.colors[1]},${variant.colors[2]})`,
+                                      border: isSelected ? '3px solid #2563EB' : `2px solid ${appSettings.theme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+                                      boxShadow: isSelected ? '0 0 14px rgba(37,99,235,0.45)' : '0 2px 8px rgba(0,0,0,0.1)',
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s'
+                                    }}>
+                                      {isSelected && <span style={{ color: '#2563EB', fontSize: '1.1rem', fontWeight: '900' }}>✓</span>}
+                                    </div>
+                                    <span style={{
+                                      fontSize: '0.6rem', fontWeight: isSelected ? '700' : '500',
+                                      color: isSelected ? '#2563EB' : '#64748B', textAlign: 'center', maxWidth: '52px', lineHeight: 1.2
+                                    }}>{variant.name}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* Font Size */}
+                            <label style={{ color: '#64748B', display: 'block', marginBottom: '10px', fontSize: '0.8rem', fontWeight: '600' }}>{t('settings.fontSize')}</label>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                              {['small', 'medium', 'large'].map(size => (
+                                <button key={size} onClick={() => {
+                                  setAppSettings(prev => ({ ...prev, fontSize: size }));
+                                  localStorage.setItem('app_fontSize', size);
+                                }} style={{
+                                  flex: 1, padding: '12px', borderRadius: '12px', border: 'none', cursor: 'pointer',
+                                  background: appSettings.fontSize === size ? '#2563EB' : (appSettings.theme === 'dark' ? 'rgba(255,255,255,0.06)' : '#F1F5F9'),
+                                  color: appSettings.fontSize === size ? '#fff' : '#64748B',
+                                  fontWeight: '700', fontSize: '0.8rem', transition: 'all 0.2s', textTransform: 'capitalize'
+                                }}>
+                                  {t(`settings.${size}`)}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Financial Configuration */}
+                          <div style={{
+                            background: 'var(--app-bg-card)', borderRadius: '18px',
+                            padding: '22px', marginBottom: '18px',
+                            boxShadow: appSettings.theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                              <IonIcon icon={cashOutline} style={{ fontSize: '22px', color: '#2563EB' }} />
+                              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '700', color: 'var(--app-text)' }}>{t('settings.financialConfiguration')}</h3>
+                            </div>
+                            <label style={{ color: '#64748B', display: 'block', marginBottom: '10px', fontSize: '0.8rem', fontWeight: '600' }}>{t('settings.globalCurrency')}</label>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+                              {['EGP', 'USD', 'EUR', 'SAR', 'QAR', 'KWD'].map(cur => (
+                                <button key={cur} onClick={() => setCurrency(cur)} style={{
+                                  padding: '8px 18px', borderRadius: '10px', border: 'none', cursor: 'pointer',
+                                  background: appSettings.currency === cur ? '#10B981' : (appSettings.theme === 'dark' ? 'rgba(255,255,255,0.06)' : '#F1F5F9'),
+                                  color: appSettings.currency === cur ? '#fff' : '#64748B',
+                                  fontWeight: '700', fontSize: '0.8rem', transition: 'all 0.2s'
+                                }}>{cur}</button>
+                              ))}
+                            </div>
+                            <p style={{ margin: '8px 0 0', fontSize: '0.7rem', color: '#94A3B8' }}>{t('settings.currencyHint')}</p>
+                          </div>
+
+                          {/* Notifications */}
+                          <div style={{
+                            background: 'var(--app-bg-card)', borderRadius: '18px',
+                            padding: '22px',
+                            boxShadow: appSettings.theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                              <IonIcon icon={notificationsOutline} style={{ fontSize: '22px', color: '#2563EB' }} />
+                              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '700', color: 'var(--app-text)' }}>{t('settings.notifications')}</h3>
+                            </div>
+                            {[
+                              { key: 'paymentReminders', label: t('settings.paymentReminders') },
+                              { key: 'overdueAlerts', label: t('settings.overdueAlerts') },
+                            ].map(item => (
+                              <div key={item.key} style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                padding: '14px 0',
+                                borderBottom: '1px solid ' + (appSettings.theme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)')
+                              }}>
+                                <span style={{ fontSize: '0.85rem', color: 'var(--app-text)', fontWeight: '500' }}>{item.label}</span>
+                                <div
+                                  onClick={() => {
+                                    const newVal = !appSettings[item.key];
+                                    setAppSettings(prev => ({ ...prev, [item.key]: newVal }));
+                                    localStorage.setItem(`app_${item.key}`, String(newVal));
+                                  }}
+                                  style={{
+                                    width: '48px', height: '26px', borderRadius: '13px',
+                                    background: appSettings[item.key] ? '#10B981' : (appSettings.theme === 'dark' ? '#334155' : '#CBD5E1'),
+                                    position: 'relative', cursor: 'pointer', transition: 'background 0.25s', flexShrink: 0
+                                  }}
+                                >
+                                  <div style={{
+                                    width: '22px', height: '22px', borderRadius: '50%', background: '#fff',
+                                    position: 'absolute', top: '2px',
+                                    left: appSettings[item.key] ? '24px' : '2px',
+                                    transition: 'left 0.25s', boxShadow: '0 1px 4px rgba(0,0,0,0.25)'
+                                  }} />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
+                      )}
 
-                      {/* Background Variant Picker */}
-                      <div style={{ marginBottom: '15px' }}>
-                        <label style={{ color: '#64748B', display: 'block', marginBottom: '10px' }}>Background Style</label>
-                        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                          {(appSettings.theme === 'dark' ? [
-                            { id: 'deep-ocean', name: 'Deep Ocean', colors: ['#0f172a', '#1e293b', '#0f172a'] },
-                            { id: 'midnight-charcoal', name: 'Midnight Charcoal', colors: ['#111827', '#1a1a2e', '#16213e'] },
-                            { id: 'obsidian-slate', name: 'Obsidian Slate', colors: ['#0c0c1d', '#1a1b2e', '#0d1117'] },
-                            { id: 'dark-carbon', name: 'Dark Carbon', colors: ['#171717', '#262626', '#171717'] },
-                            { id: 'deep-space', name: 'Deep Space', colors: ['#020617', '#0f172a', '#1e1b4b'] },
-                          ] : [
-                            { id: 'cloud-white', name: 'Cloud White', colors: ['#f0f9ff', '#f8fafc', '#ffffff'] },
-                            { id: 'pearl', name: 'Pearl', colors: ['#f8fafc', '#f1f5f9', '#e2e8f0'] },
-                            { id: 'warm-sand', name: 'Warm Sand', colors: ['#fefce8', '#fef9ef', '#fffbeb'] },
-                            { id: 'soft-lavender', name: 'Soft Lavender', colors: ['#faf5ff', '#f5f3ff', '#ede9fe'] },
-                            { id: 'arctic-mist', name: 'Arctic Mist', colors: ['#ecfeff', '#f0fdfa', '#f0fdf4'] },
-                          ]).map(variant => {
-                            const isSelected = appSettings.bgVariant === variant.id;
-                            return (
-                              <div
-                                key={variant.id}
+                      {/* ══════ DATABASE TAB ══════ */}
+                      {settingsTab === 'database' && (
+                        <div style={{ animation: 'fadeInUp 0.2s ease' }}>
+
+                          {/* Connection Mode */}
+                          <div style={{
+                            background: 'var(--app-bg-card)', borderRadius: '18px',
+                            padding: '22px', marginBottom: '18px',
+                            boxShadow: appSettings.theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                              <IonIcon icon={cloudDownload} style={{ fontSize: '22px', color: '#2563EB' }} />
+                              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '700', color: 'var(--app-text)' }}>{t('settings.databaseConnection')}</h3>
+                            </div>
+                            <p style={{ fontSize: '0.75rem', color: '#64748B', marginBottom: '18px' }}>{t('settings.databaseConnectionHint')}</p>
+
+                            {/* Mode Selector Cards */}
+                            <div style={{ display: 'grid', gridTemplateColumns: isNativeMobile ? '1fr 1fr' : '1fr 1fr 1fr 1fr', gap: '10px', marginBottom: '18px' }}>
+                              {[
+                                { val: 'local', emoji: '💾', label: 'Local Storage' },
+                                { val: 'hosted', emoji: '☁️', label: 'Cloud Sync' },
+                                { val: 'network', emoji: '📡', label: 'Network Server' },
+                                ...(!isNativeMobile ? [{ val: 'express', emoji: '🖥️', label: 'LAN Server' }] : [])
+                              ].map(mode => {
+                                const isCloudLocked = mode.val === 'hosted' && !checkFeature && !planLimits.cloud;
+                                return (
+                                <button key={mode.val} onClick={() => {
+                                  if (mode.val === 'hosted' && !checkFeature('Cloud Sync (Supabase)', planLimits.cloud)) return;
+                                  setDbConfig({ ...dbConfig, type: mode.val });
+                                }} style={{
+                                  padding: '14px 8px', borderRadius: '14px', cursor: 'pointer',
+                                  background: dbConfig.type === mode.val
+                                    ? 'linear-gradient(135deg,rgba(37,99,235,0.15),rgba(37,99,235,0.08))'
+                                    : (appSettings.theme === 'dark' ? 'rgba(255,255,255,0.04)' : '#F8FAFC'),
+                                  border: dbConfig.type === mode.val ? '2px solid rgba(37,99,235,0.6)' : '2px solid transparent',
+                                  color: dbConfig.type === mode.val ? '#2563EB' : '#64748B',
+                                  fontWeight: '700', fontSize: '0.72rem', transition: 'all 0.2s', textAlign: 'center'
+                                }}>
+                                  <div style={{ fontSize: '1.4rem', marginBottom: '6px' }}>{mode.emoji}</div>
+                                  {mode.label}
+                                  {mode.val === 'hosted' && !planLimits.cloud && <span style={{fontSize:9,marginLeft:4}}>🔒</span>}
+                                </button>
+                                );
+                              })}
+                            </div>
+
+                            {/* Local Mode */}
+                            {dbConfig.type === 'local' && (
+                              <div style={{ background: appSettings.theme === 'dark' ? 'rgba(37,99,235,0.08)' : '#EFF6FF', borderRadius: '12px', padding: '14px' }}>
+                                <p style={{ margin: '0 0 8px', fontSize: '0.75rem', color: '#64748B', fontWeight: '600' }}>{t('settings.currentDbLocation')}:</p>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <code style={{
+                                    flex: 1, background: appSettings.theme === 'dark' ? '#0F172A' : '#fff',
+                                    padding: '8px 10px', fontSize: '0.7rem', color: '#2563EB',
+                                    wordBreak: 'break-all', borderRadius: '8px', border: '1px solid rgba(37,99,235,0.2)'
+                                  }}>{currentDbPath}</code>
+                                  <button onClick={handleChangeDbFolder} style={{
+                                    background: '#2563EB', color: '#fff', border: 'none',
+                                    borderRadius: '8px', padding: '8px 12px', cursor: 'pointer', flexShrink: 0, fontWeight: '700', fontSize: '0.7rem'
+                                  }}>Change</button>
+                                </div>
+                                {isNativeMobile && (
+                                  <p style={{ fontSize: '0.65rem', color: '#94A3B8', marginTop: '8px', marginBottom: 0 }}>
+                                    <strong>{t('settings.mobileNote')}:</strong> {t('settings.mobileLocalDbHint')}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Backup Location (local/express) */}
+                            {(dbConfig.type === 'local' || dbConfig.type === 'express') && (
+                              <div style={{
+                                background: appSettings.theme === 'dark' ? 'rgba(16,185,129,0.08)' : '#F0FDF4',
+                                borderRadius: '12px', padding: '14px', marginTop: '12px'
+                              }}>
+                                <p style={{ margin: '0 0 8px', fontSize: '0.75rem', color: '#64748B', fontWeight: '600' }}>Backup Location:</p>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <code style={{
+                                    flex: 1, background: appSettings.theme === 'dark' ? '#0F172A' : '#fff',
+                                    padding: '8px 10px', fontSize: '0.7rem', color: '#059669',
+                                    wordBreak: 'break-all', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.2)'
+                                  }}>{currentBackupPath}</code>
+                                  <button onClick={handleChangeBackupFolder} style={{
+                                    background: '#059669', color: '#fff', border: 'none',
+                                    borderRadius: '8px', padding: '8px 12px', cursor: 'pointer', flexShrink: 0, fontWeight: '700', fontSize: '0.7rem'
+                                  }}>Change</button>
+                                  <button onClick={handleResetBackupFolder} style={{
+                                    background: '#64748B', color: '#fff', border: 'none',
+                                    borderRadius: '8px', padding: '8px 12px', cursor: 'pointer', flexShrink: 0, fontWeight: '700', fontSize: '0.7rem'
+                                  }}>Reset</button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Network / Android Mode */}
+                            {dbConfig.type === 'network' && (
+                              <div style={{ background: appSettings.theme === 'dark' ? 'rgba(37,99,235,0.08)' : '#EFF6FF', borderRadius: '12px', padding: '14px', marginTop: '0' }}>
+                                <h4 style={{ color: '#2563EB', margin: '0 0 8px', fontSize: '0.85rem', fontWeight: '700' }}>{t('settings.networkConnection')}</h4>
+                                <p style={{ fontSize: '0.72rem', color: '#64748B', marginBottom: '12px' }}>{t('settings.networkConnectionHint')}</p>
+                                <label style={{ color: '#64748B', display: 'block', fontSize: '0.7rem', marginBottom: '4px', fontWeight: '600' }}>{t('settings.serverIpOrNetworkPath')}</label>
+                                <IonItem lines="none" style={{ '--background': appSettings.theme === 'dark' ? '#0F172A' : '#fff', borderRadius: '10px', marginBottom: '10px', border: '1px solid rgba(37,99,235,0.2)' }}>
+                                  <IonInput
+                                    value={dbConfig.url}
+                                    onIonInput={e => { setDbConfig({ ...dbConfig, url: e.detail.value }); setTestConnectionResult(null); }}
+                                    placeholder={t('settings.serverIpPlaceholder')}
+                                    style={{ fontSize: '0.9rem' }}
+                                  />
+                                </IonItem>
+                                <IonButton expand="block" onClick={handleTestConnection} style={{
+                                  '--color': '#FFFFFF', '--background': '#2563EB', '--border-radius': '10px',
+                                  fontWeight: 'bold', marginBottom: '10px'
+                                }}>
+                                  🔌 Test Connection
+                                </IonButton>
+                                {testConnectionResult && (
+                                  <div style={{
+                                    padding: '10px 14px', borderRadius: '10px', marginBottom: '10px',
+                                    fontSize: '0.75rem', fontWeight: '600', lineHeight: '1.5',
+                                    background: testConnectionResult.ok === true ? 'rgba(16,185,129,0.15)' : testConnectionResult.ok === 'pending' ? 'rgba(245,158,11,0.15)' : testConnectionResult.ok === null ? 'rgba(100,116,139,0.12)' : 'rgba(220,38,38,0.12)',
+                                    color: testConnectionResult.ok === true ? '#059669' : testConnectionResult.ok === 'pending' ? '#D97706' : testConnectionResult.ok === null ? '#64748B' : '#DC2626',
+                                    border: `1px solid ${testConnectionResult.ok === true ? 'rgba(16,185,129,0.3)' : testConnectionResult.ok === 'pending' ? 'rgba(245,158,11,0.3)' : testConnectionResult.ok === null ? 'rgba(100,116,139,0.2)' : 'rgba(220,38,38,0.3)'}`
+                                  }}>
+                                    {testConnectionResult.message}
+                                    {testConnectionResult.ok === 'pending' && (
+                                      <div style={{ marginTop: '6px', fontSize: '0.65rem', color: '#92400E' }}>
+                                        💡 Go to the PC app → Server panel → Approve this device.
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                <p style={{ fontSize: '0.65rem', color: '#94A3B8', marginBottom: 0 }}>{t('settings.mobileIpHint')}</p>
+                              </div>
+                            )}
+
+                            {/* Express LAN Server Mode */}
+                            {dbConfig.type === 'express' && (
+                              <div style={{
+                                background: 'linear-gradient(135deg,rgba(16,185,129,0.08),rgba(37,99,235,0.08))',
+                                borderRadius: '14px', padding: '18px', marginTop: '0',
+                                border: '1px solid rgba(16,185,129,0.25)'
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                                  <div style={{
+                                    width: '12px', height: '12px', borderRadius: '50%',
+                                    background: expressServerRunning ? '#10B981' : '#64748B',
+                                    boxShadow: expressServerRunning ? '0 0 10px rgba(16,185,129,0.6)' : 'none',
+                                    animation: expressServerRunning ? 'pulse 2s infinite' : 'none'
+                                  }} />
+                                  <h4 style={{ color: expressServerRunning ? '#10B981' : '#64748B', margin: 0, fontSize: '0.9rem', fontWeight: '700' }}>
+                                    {expressServerRunning ? '🟢 Server Running' : '⚫ Server Stopped'}
+                                  </h4>
+                                  {expressServerRunning && (
+                                    <span style={{ marginLeft: 'auto', background: '#FEF3C7', color: '#92400E', fontSize: '0.6rem', padding: '2px 8px', borderRadius: '20px', fontWeight: '700' }}>
+                                      MONITOR MODE
+                                    </span>
+                                  )}
+                                </div>
+                                <p style={{ fontSize: '0.72rem', color: '#64748B', marginBottom: '14px', lineHeight: '1.5' }}>
+                                  Start a LAN server so employees can <strong>read and write</strong> data. You monitor all changes in real-time.
+                                </p>
+                                <IonButton expand="block" disabled={expressServerLoading} onClick={expressServerRunning ? handleStopExpressServer : handleStartExpressServer} style={{
+                                  '--color': '#FFFFFF', '--background': expressServerRunning ? '#DC2626' : '#10B981',
+                                  color: '#FFFFFF', '--border-radius': '10px', fontWeight: 'bold', marginBottom: '14px'
+                                }}>
+                                  {expressServerLoading ? 'Please wait...' : (expressServerRunning ? '⏹ Stop Server' : '▶ Start Server')}
+                                </IonButton>
+
+                                {/* DB Path */}
+                                <div style={{ background: appSettings.theme === 'dark' ? 'rgba(0,0,0,0.3)' : '#F8FAFC', borderRadius: '10px', padding: '12px', marginBottom: '12px', border: '1px solid rgba(0,0,0,0.08)' }}>
+                                  <div style={{ fontSize: '0.7rem', fontWeight: '700', color: 'var(--app-text)', marginBottom: '6px' }}>📁 Database Directory</div>
+                                  <div style={{ fontSize: '0.65rem', wordBreak: 'break-all', background: '#1E293B', color: '#10B981', padding: '8px 10px', borderRadius: '6px', fontFamily: 'monospace', marginBottom: '8px' }}>
+                                    {currentDbPath || 'Loading...'}
+                                  </div>
+                                  <button disabled={expressServerRunning} onClick={async () => {
+                                    if (window.electronAPI?.selectDBFolder) {
+                                      try {
+                                        const result = await window.electronAPI.selectDBFolder();
+                                        if (result) { setCurrentDbPath(result); alert('Database path updated to:\n' + result); }
+                                      } catch (e) { alert('Failed: ' + (e.message || e)); }
+                                    }
+                                  }} style={{
+                                    border: 'none', borderRadius: '6px', padding: '6px 14px',
+                                    fontSize: '0.65rem', fontWeight: '700', cursor: expressServerRunning ? 'not-allowed' : 'pointer',
+                                    background: expressServerRunning ? '#CBD5E1' : '#2563EB', color: '#fff', width: '100%'
+                                  }}>
+                                    {expressServerRunning ? '⚠️ Stop server first to change path' : '📂 Change Database Folder'}
+                                  </button>
+                                </div>
+
+                                {/* Auto-start toggle */}
+                                {window.electronAPI?.setAutoStart && (
+                                  <div style={{
+                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                    padding: '10px 14px', marginBottom: '12px',
+                                    background: autoStartServer ? 'rgba(16,185,129,0.1)' : (appSettings.theme === 'dark' ? 'rgba(255,255,255,0.04)' : '#F8FAFC'),
+                                    borderRadius: '10px', border: `1px solid ${autoStartServer ? 'rgba(16,185,129,0.3)' : 'rgba(0,0,0,0.06)'}`
+                                  }}>
+                                    <div>
+                                      <div style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--app-text)' }}>🔄 Start on Windows Startup</div>
+                                      <div style={{ fontSize: '0.6rem', color: '#94A3B8' }}>Auto-launch DYR and start server on boot</div>
+                                    </div>
+                                    <div onClick={async () => {
+                                      const newVal = !autoStartServer;
+                                      setAutoStartServer(newVal);
+                                      try { await window.electronAPI.setAutoStart(newVal); }
+                                      catch (e) { setAutoStartServer(!newVal); }
+                                    }} style={{
+                                      width: '44px', height: '24px', borderRadius: '12px',
+                                      background: autoStartServer ? '#10B981' : '#CBD5E1',
+                                      position: 'relative', cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0
+                                    }}>
+                                      <div style={{
+                                        width: '20px', height: '20px', borderRadius: '50%', background: '#fff',
+                                        position: 'absolute', top: '2px', left: autoStartServer ? '22px' : '2px',
+                                        transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                                      }} />
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Live server info */}
+                                {expressServerRunning && (
+                                  <div style={{ background: appSettings.theme === 'dark' ? 'rgba(0,0,0,0.3)' : '#fff', borderRadius: '10px', padding: '14px', border: '1px solid rgba(16,185,129,0.2)' }}>
+                                    <p style={{ margin: '0 0 10px', fontSize: '0.78rem', color: '#10B981', fontWeight: '700' }}>📡 Clients connect to:</p>
+                                    <div style={{ background: '#1E293B', borderRadius: '8px', padding: '10px', marginBottom: '12px', textAlign: 'center' }}>
+                                      <code style={{ color: '#10B981', fontSize: '1rem', fontWeight: 'bold', letterSpacing: '0.5px' }}>
+                                        http://{expressServerIP}:3001
+                                      </code>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                                      {[
+                                        { count: expressServerStats?.summary?.pending || 0, label: 'Pending', bg: '#FEF3C7', col: '#92400E' },
+                                        { count: expressServerStats?.summary?.approved || 0, label: 'Approved', bg: '#F0FDF4', col: '#059669' },
+                                        { count: expressServerStats?.summary?.blocked || 0, label: 'Blocked', bg: '#FEF2F2', col: '#DC2626' },
+                                      ].map(s => (
+                                        <div key={s.label} style={{ background: s.bg, borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
+                                          <div style={{ fontSize: '1.2rem', fontWeight: '800', color: s.col }}>{s.count}</div>
+                                          <div style={{ fontSize: '0.6rem', color: '#64748B' }}>{s.label}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+
+                                    {/* Pending clients */}
+                                    {(expressServerStats?.clients || []).filter(c => c.status === 'pending').map((client, idx) => (
+                                      <div key={idx} style={{ padding: '10px', marginBottom: '6px', background: '#FFFBEB', borderRadius: '8px', border: '1px solid #FCD34D' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                          <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#F59E0B', animation: 'pulse 1.5s infinite' }} />
+                                          <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#1E293B' }}>{client.name}</div>
+                                            <div style={{ fontSize: '0.6rem', color: '#94A3B8' }}>{client.ip}</div>
+                                          </div>
+                                          <button onClick={async () => { try { await fetch('http://localhost:3001/api/admin/block', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ip: client.ip}) }); const r = await fetch('http://localhost:3001/api/health'); if(r.ok) setExpressServerStats(await r.json()); } catch(e){} }} style={{ border:'none', borderRadius:'6px', padding:'5px 10px', fontSize:'0.65rem', fontWeight:'700', cursor:'pointer', background:'#DC2626', color:'#fff' }}>✕ Reject</button>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                          <button onClick={async () => { try { await fetch('http://localhost:3001/api/admin/approve', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ip: client.ip}) }); const r = await fetch('http://localhost:3001/api/health'); if(r.ok) setExpressServerStats(await r.json()); } catch(e){} }} style={{ border:'none', borderRadius:'6px', padding:'5px 10px', fontSize:'0.65rem', fontWeight:'700', cursor:'pointer', background:'#10B981', color:'#fff' }}>✓ Approve</button>
+                                          <input type="number" min="1" max="8760" placeholder="hrs" value={clientLimitHours[client.ip] || ''} onChange={e => setClientLimitHours(prev => ({ ...prev, [client.ip]: e.target.value }))} style={{ width:'52px', borderRadius:'6px', border:'1px solid #D1D5DB', padding:'4px 6px', fontSize:'0.7rem', textAlign:'center' }} />
+                                          <button onClick={async () => { const hrs = Number(clientLimitHours[client.ip]); if (!hrs) { alert('Enter hours first'); return; } try { await fetch('http://localhost:3001/api/admin/approveWithLimit', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ip: client.ip, hours: hrs}) }); const r = await fetch('http://localhost:3001/api/health'); if(r.ok) setExpressServerStats(await r.json()); setClientLimitHours(prev => ({...prev,[client.ip]:''})); } catch(e){} }} style={{ border:'none', borderRadius:'6px', padding:'5px 10px', fontSize:'0.65rem', fontWeight:'700', cursor:'pointer', background:'#F59E0B', color:'#fff' }}>⏱ With Limit</button>
+                                        </div>
+                                      </div>
+                                    ))}
+
+                                    {/* Approved clients */}
+                                    {(expressServerStats?.clients || []).filter(c => c.status === 'approved').map((client, idx) => (
+                                      <div key={idx} style={{ padding: '10px', marginBottom: '6px', background: '#F0FDF4', borderRadius: '8px', border: '1px solid #BBF7D0' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10B981', boxShadow: '0 0 6px rgba(16,185,129,0.4)' }} />
+                                          <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#1E293B' }}>{client.name}</div>
+                                            <div style={{ fontSize: '0.6rem', color: '#94A3B8' }}>{client.ip} · {client.requests} req</div>
+                                          </div>
+                                          <button onClick={async () => { try { await fetch('http://localhost:3001/api/admin/block', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ip: client.ip}) }); const r = await fetch('http://localhost:3001/api/health'); if(r.ok) setExpressServerStats(await r.json()); } catch(e){} }} style={{ border:'none', borderRadius:'6px', padding:'5px 10px', fontSize:'0.65rem', fontWeight:'700', cursor:'pointer', background:'#DC2626', color:'#fff' }}>✕ Block</button>
+                                        </div>
+                                      </div>
+                                    ))}
+
+                                    {/* Blocked clients */}
+                                    {(expressServerStats?.clients || []).filter(c => c.status === 'blocked').map((client, idx) => (
+                                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', marginBottom: '6px', background: '#FEF2F2', borderRadius: '8px', border: '1px solid #FECACA', opacity: 0.8 }}>
+                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#DC2626' }} />
+                                        <div style={{ flex: 1 }}>
+                                          <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#DC2626' }}>{client.name}</div>
+                                          <div style={{ fontSize: '0.6rem', color: '#94A3B8' }}>{client.ip}</div>
+                                        </div>
+                                        <button onClick={async () => { try { await fetch('http://localhost:3001/api/admin/unblock', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ip: client.ip}) }); const r = await fetch('http://localhost:3001/api/health'); if(r.ok) setExpressServerStats(await r.json()); } catch(e){} }} style={{ border:'none', borderRadius:'6px', padding:'5px 10px', fontSize:'0.65rem', fontWeight:'700', cursor:'pointer', background:'#10B981', color:'#fff' }}>✓ Enable</button>
+                                      </div>
+                                    ))}
+
+                                    {(!expressServerStats?.clients || expressServerStats.clients.length === 0) && (
+                                      <div style={{ textAlign: 'center', padding: '12px', background: appSettings.theme === 'dark' ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderRadius: '8px' }}>
+                                        <p style={{ margin: 0, fontSize: '0.75rem', color: '#94A3B8' }}>No clients connected yet</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Data Management */}
+                          <div style={{
+                            background: 'var(--app-bg-card)', borderRadius: '18px',
+                            padding: '22px',
+                            boxShadow: appSettings.theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                              <IonIcon icon={trashOutline} style={{ fontSize: '22px', color: '#2563EB' }} />
+                              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '700', color: 'var(--app-text)' }}>{t('settings.dataManagement')}</h3>
+                            </div>
+                            {dbConfig.type === 'network' && (
+                              <div style={{ padding: '12px', background: '#FEF3C7', borderRadius: '10px', marginBottom: '14px', border: '1px solid #FCD34D' }}>
+                                <p style={{ margin: 0, fontSize: '0.75rem', color: '#92400E', fontWeight: '600' }}>
+                                  ⚠️ Backups only available on the host PC.
+                                </p>
+                              </div>
+                            )}
+                            <IonButton expand="block" fill="outline" color="medium" disabled={dbConfig.type === 'network'} style={{ marginBottom: '10px', '--border-radius': '12px' }}
+                              onClick={() => {
+                                const data = { buildings, customers, offers, contracts, installments, sales, terminatedContracts, terminatedInstallments, exportDate: new Date().toISOString() };
+                                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                                const fname = `dyr-backup-${new Date().toISOString().split('T')[0]}.json`;
+                                if (isNativeMobile) { exportFileMobile(blob, fname, 'application/json'); }
+                                else { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = fname; a.click(); URL.revokeObjectURL(url); }
+                              }}>
+                              <IonIcon icon={downloadOutline} slot="start" />{t('settings.exportData')}
+                            </IonButton>
+                            <IonButton expand="block" style={{ '--color': '#FFFFFF', '--background': '#DC2626', color: '#FFFFFF', '--border-radius': '12px' }}
+                              onClick={() => { if (window.confirm(t('alert.clearCacheConfirm'))) { localStorage.removeItem('dyr_cache'); refreshData(); } }}>
+                              <IonIcon icon={trashOutline} slot="start" />{t('settings.clearCache')}
+                            </IonButton>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ══════ COMPANY TAB ══════ */}
+                      {settingsTab === 'company' && (
+                        <div style={{ animation: 'fadeInUp 0.2s ease' }}>
+
+                          {/* ── NON-ADMIN: read-only locked view (owner included) ── */}
+                          {loggedInUser?.rank !== 'admin' && (
+                            <div style={{
+                              background: 'var(--app-bg-card)', borderRadius: '18px',
+                              padding: '28px', textAlign: 'center',
+                              boxShadow: appSettings.theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)',
+                              border: appSettings.theme === 'dark' ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(0,0,0,0.07)'
+                            }}>
+                              <div style={{
+                                width: '56px', height: '56px', borderRadius: '16px', margin: '0 auto 16px',
+                                background: 'linear-gradient(135deg,rgba(100,116,139,0.15),rgba(100,116,139,0.08))',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.8rem'
+                              }}>🔒</div>
+                              <h3 style={{ margin: '0 0 6px', fontSize: '1rem', fontWeight: '800', color: 'var(--app-text)' }}>Admin-Only Setting</h3>
+                              <p style={{ margin: '0 0 24px', fontSize: '0.78rem', color: '#64748B', lineHeight: '1.6' }}>
+                                Company branding can only be changed by an admin account.<br />Contact your company admin to make changes.
+                              </p>
+                              {(branding.name || branding.logo || branding.logoDark) && (
+                                <div style={{
+                                  background: appSettings.theme === 'dark' ? 'rgba(255,255,255,0.04)' : '#F8FAFC',
+                                  borderRadius: '14px', padding: '18px',
+                                  border: appSettings.theme === 'dark' ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(0,0,0,0.07)',
+                                  textAlign: 'left'
+                                }}>
+                                  <p style={{ margin: '0 0 12px', fontSize: '0.65rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase', letterSpacing: '1px' }}>Current Branding</p>
+                                  {branding.name && (
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                                      <span style={{ fontSize: '0.78rem', color: '#64748B' }}>Company Name</span>
+                                      <span style={{ fontSize: '0.9rem', fontWeight: '800', color: 'var(--app-text)' }}>{branding.name}</span>
+                                    </div>
+                                  )}
+                                  {(branding.logo || branding.logoDark) && (
+                                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '8px' }}>
+                                      {branding.logo && (
+                                        <div style={{ textAlign: 'center' }}>
+                                          <div style={{ width: '80px', height: '44px', borderRadius: '8px', background: '#fff', backgroundImage: `url(${branding.logo})`, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', border: '1px solid #E5E7EB' }} />
+                                          <span style={{ fontSize: '0.6rem', color: '#94A3B8', marginTop: '4px', display: 'block' }}>Light</span>
+                                        </div>
+                                      )}
+                                      {branding.logoDark && (
+                                        <div style={{ textAlign: 'center' }}>
+                                          <div style={{ width: '80px', height: '44px', borderRadius: '8px', background: '#0F172A', backgroundImage: `url(${branding.logoDark})`, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', border: '1px solid #334155' }} />
+                                          <span style={{ fontSize: '0.6rem', color: '#94A3B8', marginTop: '4px', display: 'block' }}>Dark</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* ── ADMIN ONLY: full editable branding ── */}
+                          {loggedInUser?.rank === 'admin' && (<>
+
+                          {/* Company Name */}
+                          <div style={{
+                            background: 'var(--app-bg-card)', borderRadius: '18px',
+                            padding: '22px', marginBottom: '18px',
+                            boxShadow: appSettings.theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                              <IonIcon icon={businessOutline} style={{ fontSize: '22px', color: '#2563EB' }} />
+                              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '700', color: 'var(--app-text)' }}>{t('settings.companyIdentity')}</h3>
+                            </div>
+                            <label style={{ color: '#64748B', display: 'block', marginBottom: '8px', fontSize: '0.8rem', fontWeight: '600' }}>{t('settings.companyName')}</label>
+                            <IonInput
+                              value={branding.name}
+                              onIonChange={e => setBranding({ ...branding, name: e.detail.value })}
+                              placeholder={t('settings.companyNamePlaceholder')}
+                              style={{ background: appSettings.theme === 'dark' ? '#0F172A' : '#fff', borderRadius: '10px', '--padding-start': '12px', border: '1px solid rgba(37,99,235,0.2)' }}
+                            />
+                          </div>
+
+                          {/* Logos */}
+                          <div style={{
+                            background: 'var(--app-bg-card)', borderRadius: '18px',
+                            padding: '22px', marginBottom: '18px',
+                            boxShadow: appSettings.theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)'
+                          }}>
+                            <label style={{ color: '#2563EB', display: 'block', marginBottom: '6px', fontSize: '0.75rem', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px' }}>Company Logo</label>
+                            <p style={{ margin: '0 0 14px', fontSize: '0.72rem', color: '#64748B' }}>Upload separate logos for light and dark themes.</p>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                              {/* Light */}
+                              <div style={{ background: '#F8FAFC', borderRadius: '14px', padding: '14px', border: '1px solid #E5E7EB' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                                  <span>☀️</span><span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#1E293B', textTransform: 'uppercase' }}>Light</span>
+                                </div>
+                                <div onClick={() => document.getElementById('set-logo-light').click()} style={{
+                                  width: '100%', height: '70px', borderRadius: '10px', background: '#fff',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                                  border: branding.logo ? '2px solid #E5E7EB' : '2px dashed #CBD5E1',
+                                  backgroundImage: branding.logo ? `url(${branding.logo})` : 'none',
+                                  backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center'
+                                }}>
+                                  {!branding.logo && <span style={{ color: '#94A3B8', fontSize: '0.65rem', fontWeight: '600' }}>Upload</span>}
+                                </div>
+                                <input type="file" id="set-logo-light" style={{ display: 'none' }} onChange={(e) => handleImagePick('logo', e)} accept="image/*" />
+                                {branding.logo && <IonButton fill="clear" size="small" style={{ '--color': '#DC2626', fontSize: '0.7rem', marginTop: '4px' }} onClick={() => setBranding({ ...branding, logo: null })}>{t('common.remove')}</IonButton>}
+                              </div>
+                              {/* Dark */}
+                              <div style={{ background: '#1E293B', borderRadius: '14px', padding: '14px', border: '1px solid #334155' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                                  <span>🌙</span><span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#E2E8F0', textTransform: 'uppercase' }}>Dark</span>
+                                </div>
+                                <div onClick={() => document.getElementById('set-logo-dark').click()} style={{
+                                  width: '100%', height: '70px', borderRadius: '10px', background: '#0F172A',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                                  border: branding.logoDark ? '2px solid #334155' : '2px dashed #475569',
+                                  backgroundImage: branding.logoDark ? `url(${branding.logoDark})` : 'none',
+                                  backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center'
+                                }}>
+                                  {!branding.logoDark && <span style={{ color: '#64748B', fontSize: '0.65rem', fontWeight: '600' }}>Upload</span>}
+                                </div>
+                                <input type="file" id="set-logo-dark" style={{ display: 'none' }} onChange={(e) => handleImagePick('logoDark', e)} accept="image/*" />
+                                {branding.logoDark && <IonButton fill="clear" size="small" style={{ '--color': '#F87171', fontSize: '0.7rem', marginTop: '4px' }} onClick={() => setBranding({ ...branding, logoDark: null })}>{t('common.remove')}</IonButton>}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* PDF Branding */}
+                          <div style={{
+                            background: 'var(--app-bg-card)', borderRadius: '18px',
+                            padding: '22px',
+                            boxShadow: appSettings.theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)'
+                          }}>
+                            <label style={{ color: '#2563EB', display: 'block', marginBottom: '14px', fontSize: '0.75rem', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px' }}>Portrait PDF Branding</label>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '20px' }}>
+                              {[
+                                { field: 'header', id: 'set-header', label: 'Portrait Header' },
+                                { field: 'footer', id: 'set-footer', label: 'Portrait Footer' },
+                              ].map(item => (
+                                <div key={item.id}>
+                                  <label style={{ color: '#64748B', display: 'block', marginBottom: '5px', fontSize: '0.75rem' }}>{item.label}</label>
+                                  <div onClick={() => document.getElementById(item.id).click()} style={{
+                                    height: '80px', background: '#fff', borderRadius: '8px',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                                    backgroundImage: branding[item.field] ? `url(${branding[item.field]})` : 'none',
+                                    backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center',
+                                    border: '1px dashed #CBD5E1'
+                                  }}>
+                                    {!branding[item.field] && <span style={{ fontSize: '0.7rem', color: '#64748B' }}>{t('settings.clickToUpload')}</span>}
+                                  </div>
+                                  <input type="file" id={item.id} style={{ display: 'none' }} onChange={(e) => handleImagePick(item.field, e)} accept="image/*" />
+                                  {branding[item.field] && <IonButton fill="clear" size="small" style={{ '--color': '#FFFFFF', '--background': '#DC2626', color: '#FFFFFF' }} onClick={() => setBranding({ ...branding, [item.field]: null })}>{t('common.remove')}</IonButton>}
+                                </div>
+                              ))}
+                            </div>
+
+                            <label style={{ color: '#2563EB', display: 'block', marginBottom: '14px', fontSize: '0.75rem', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px' }}>Landscape PDF Branding</label>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                              {[
+                                { field: 'landscapeHeader', id: 'set-landscape-header', label: 'Landscape Header' },
+                                { field: 'landscapeFooter', id: 'set-landscape-footer', label: 'Landscape Footer' },
+                              ].map(item => (
+                                <div key={item.id}>
+                                  <label style={{ color: '#64748B', display: 'block', marginBottom: '5px', fontSize: '0.75rem' }}>{item.label}</label>
+                                  <div onClick={() => document.getElementById(item.id).click()} style={{
+                                    height: '60px', background: '#fff', borderRadius: '8px',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                                    backgroundImage: branding[item.field] ? `url(${branding[item.field]})` : 'none',
+                                    backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center',
+                                    border: '1px dashed #CBD5E1'
+                                  }}>
+                                    {!branding[item.field] && <span style={{ fontSize: '0.7rem', color: '#64748B' }}>{t('settings.clickToUpload')}</span>}
+                                  </div>
+                                  <input type="file" id={item.id} style={{ display: 'none' }} onChange={(e) => handleImagePick(item.field, e)} accept="image/*" />
+                                  {branding[item.field] && <IonButton fill="clear" size="small" style={{ '--color': '#FFFFFF', '--background': '#DC2626', color: '#FFFFFF' }} onClick={() => setBranding({ ...branding, [item.field]: null })}>{t('common.remove')}</IonButton>}
+                                </div>
+                              ))}
+                            </div>
+                            </div>
+                          </>)}
+
+                        </div>
+                      )}
+
+                      {/* ══════ SECURITY TAB ══════ */}
+                      {settingsTab === 'security' && (
+                        <div style={{ animation: 'fadeInUp 0.2s ease' }}>
+                          <div style={{
+                            background: 'var(--app-bg-card)', borderRadius: '18px',
+                            padding: '22px', marginBottom: '18px',
+                            boxShadow: appSettings.theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                              <IonIcon icon={shieldCheckmarkOutline} style={{ fontSize: '22px', color: '#2563EB' }} />
+                              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '700', color: 'var(--app-text)' }}>{t('settings.security')}</h3>
+                            </div>
+
+                            <IonButton expand="block" fill="outline" color="medium" style={{ '--border-radius': '12px', marginBottom: '12px' }} onClick={() => setShowChangePasswordAlert(true)}>
+                              <IonIcon icon={shieldCheckmarkOutline} slot="start" />{t('settings.changePassword')}
+                            </IonButton>
+
+                            {/* Owner Monitor */}
+                            {(['dyr', 'chrono'].includes((loggedInUser?.name || '').toLowerCase())) && (
+                              <IonButton expand="block" fill="outline" color="medium" style={{ '--border-radius': '12px', marginBottom: '12px', opacity: 0.8 }} onClick={() => { setShowSettingsModal(false); setShowAdminModal(true); }}>
+                                <IonIcon icon={peopleOutline} slot="start" />Owner's Monitor
+                              </IonButton>
+                            )}
+                          </div>
+
+                          {/* Financial Settings — Late Fee Rate & Grace Period */}
+                          <div style={{
+                            background: 'var(--app-bg-card)', borderRadius: '18px',
+                            padding: '22px', marginBottom: '18px',
+                            boxShadow: appSettings.theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                              <span style={{ fontSize: '22px' }}>⚠️</span>
+                              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '700', color: 'var(--app-text)' }}>Late Fee Settings</h3>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '16px', flexWrap: 'wrap' }}>
+                              {/* Rate field */}
+                              <div style={{ flex: 1, minWidth: '140px' }}>
+                                <label style={{ fontSize: '0.7rem', fontWeight: '800', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '1px', display: 'block', marginBottom: '6px' }}>Monthly Rate (%)</label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <input
+                                    type="number" min="0" max="100" step="0.1"
+                                    value={securityConfig.lateFeeRateMonthly ?? 3.5}
+                                    onChange={e => setSecurityConfig(prev => ({ ...prev, lateFeeRateMonthly: parseFloat(e.target.value) || 0 }))}
+                                    style={{ width: '90px', background: 'var(--app-bg)', border: '1px solid rgba(37,99,235,0.3)', borderRadius: '10px', padding: '10px 12px', color: 'var(--app-text)', fontSize: '1rem', fontWeight: '700' }}
+                                  />
+                                  <span style={{ fontSize: '0.85rem', color: '#94A3B8', fontWeight: '600' }}>%</span>
+                                </div>
+                                <div style={{ fontSize: '0.65rem', color: '#64748B', marginTop: '5px' }}>
+                                  Daily: {(((securityConfig.lateFeeRateMonthly ?? 3.5) / 100) / 30 * 100).toFixed(4)}%
+                                </div>
+                              </div>
+                              {/* Grace period field */}
+                              <div style={{ flex: 1, minWidth: '140px' }}>
+                                <label style={{ fontSize: '0.7rem', fontWeight: '800', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '1px', display: 'block', marginBottom: '6px' }}>Grace Period (days)</label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <input
+                                    type="number" min="0" max="365" step="1"
+                                    value={securityConfig.lateFeeGraceDays ?? 7}
+                                    onChange={e => setSecurityConfig(prev => ({ ...prev, lateFeeGraceDays: parseInt(e.target.value) || 0 }))}
+                                    style={{ width: '90px', background: 'var(--app-bg)', border: '1px solid rgba(37,99,235,0.3)', borderRadius: '10px', padding: '10px 12px', color: 'var(--app-text)', fontSize: '1rem', fontWeight: '700' }}
+                                  />
+                                  <span style={{ fontSize: '0.85rem', color: '#94A3B8', fontWeight: '600' }}>days</span>
+                                </div>
+                                <div style={{ fontSize: '0.65rem', color: '#64748B', marginTop: '5px' }}>
+                                  Fee starts after {securityConfig.lateFeeGraceDays ?? 7} days past due
+                                </div>
+                              </div>
+                              {/* Save */}
+                              <IonButton
+                                fill="solid" color="primary" size="small"
+                                style={{ '--border-radius': '10px', flexShrink: 0, marginBottom: '0' }}
                                 onClick={() => {
-                                  setAppSettings(prev => ({ ...prev, bgVariant: variant.id }));
-                                  localStorage.setItem('app_bgVariant', variant.id);
-                                  localStorage.setItem(`app_bgVariant_${appSettings.theme}`, variant.id);
-                                }}
-                                style={{
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  alignItems: 'center',
-                                  gap: '6px',
-                                  cursor: 'pointer',
-                                  transition: 'transform 0.15s ease',
-                                  transform: isSelected ? 'scale(1.08)' : 'scale(1)',
+                                  const rate  = parseFloat(securityConfig.lateFeeRateMonthly);
+                                  const grace = parseInt(securityConfig.lateFeeGraceDays);
+                                  if (isNaN(rate) || rate < 0 || rate > 100) { alert('Rate must be 0–100.'); return; }
+                                  if (isNaN(grace) || grace < 0 || grace > 365) { alert('Grace period must be 0–365 days.'); return; }
+                                  setAppSecurity({ ...getAppSecurity(), lateFeeRateMonthly: rate, lateFeeGraceDays: grace });
+                                  alert(`Saved — Rate: ${rate}% / month, Grace: ${grace} days`);
                                 }}
                               >
+                                Save Settings
+                              </IonButton>
+                            </div>
+                          </div>
+
+                          {/* Sign Out */}
+                          <div style={{
+                            background: 'var(--app-bg-card)', borderRadius: '18px',
+                            padding: '22px',
+                            boxShadow: appSettings.theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                              <IonIcon icon={logOutOutline} style={{ fontSize: '22px', color: '#DC2626' }} />
+                              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '700', color: 'var(--app-text)' }}>Session</h3>
+                            </div>
+                            {loggedInUser && (
+                              <div style={{
+                                display: 'flex', alignItems: 'center', gap: '12px', padding: '14px',
+                                background: appSettings.theme === 'dark' ? 'rgba(255,255,255,0.05)' : '#F8FAFC',
+                                borderRadius: '12px', marginBottom: '16px', border: '1px solid rgba(0,0,0,0.06)'
+                              }}>
                                 <div style={{
-                                  width: '48px',
-                                  height: '48px',
-                                  borderRadius: '50%',
-                                  background: `linear-gradient(135deg, ${variant.colors[0]}, ${variant.colors[1]}, ${variant.colors[2]})`,
-                                  border: isSelected ? '3px solid #2563EB' : `2px solid ${appSettings.theme === 'dark' ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)'}`,
-                                  boxShadow: isSelected ? '0 0 12px rgba(37, 99, 235, 0.4)' : '0 2px 8px rgba(0,0,0,0.1)',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  transition: 'all 0.2s ease',
+                                  width: '40px', height: '40px', borderRadius: '50%',
+                                  background: 'linear-gradient(135deg,#2563EB,#1d4ed8)',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  fontSize: '1.1rem', fontWeight: '800', color: '#fff', flexShrink: 0
                                 }}>
-                                  {isSelected && <span style={{ color: '#2563EB', fontSize: '1.2rem', fontWeight: '900' }}>✓</span>}
+                                  {(loggedInUser.name || '?')[0].toUpperCase()}
                                 </div>
-                                <span style={{
-                                  fontSize: '0.65rem',
-                                  color: isSelected ? '#2563EB' : '#64748B',
-                                  fontWeight: isSelected ? '700' : '500',
-                                  textAlign: 'center',
-                                  maxWidth: '60px',
-                                  lineHeight: '1.2'
-                                }}>{variant.name}</span>
+                                <div>
+                                  <div style={{ fontSize: '0.9rem', fontWeight: '700', color: 'var(--app-text)' }}>{loggedInUser.name}</div>
+                                  <div style={{ fontSize: '0.7rem', color: '#94A3B8' }}>Logged in</div>
+                                </div>
+                              </div>
+                            )}
+                            <IonButton expand="block" style={{ '--color': '#FFFFFF', '--background': '#DC2626', color: '#FFFFFF', '--border-radius': '12px' }}
+                              onClick={async () => {
+                                if (window.confirm(t('alert.signOutConfirm'))) {
+                                  if (loggedInUser) {
+                                    try { await updateUserSession(loggedInUser.id, null); await clearSessionUserInfo(sessionMac); } catch (e) { }
+                                  }
+                                  localStorage.removeItem('is_device_trusted');
+                                  localStorage.removeItem('trusted_user_name');
+                                  localStorage.removeItem('trusted_user_cred');
+                                  localStorage.removeItem('trusted_user_password');
+                                  setLoggedInUser(null); setAccessExpiresAt(null); setShowSettingsModal(false);
+                                }
+                              }}>
+                              <IonIcon icon={closeCircleOutline} slot="start" />Sign Out / Untrust Device
+                            </IonButton>
+                          </div>
+
+                          <IonAlert
+                            isOpen={showChangePasswordAlert}
+                            onDidDismiss={() => setShowChangePasswordAlert(false)}
+                            header={t('settings.changePassword')}
+                            inputs={[{ name: 'password', type: 'password', placeholder: t('settings.newPasswordPlaceholder'), attributes: { minLength: 6 } }]}
+                            buttons={[
+                              { text: t('common.cancel'), role: 'cancel', handler: () => { } },
+                              { text: t('common.save'), handler: (data) => {
+                                if (data.password && data.password.length >= 6) {
+                                  const currentSecurity = getAppSecurity();
+                                  const updatedSecurity = { ...currentSecurity, adminPassword: data.password };
+                                  setAppSecurity(updatedSecurity); setSecurityConfig(updatedSecurity);
+                                  alert(t('settings.saved')); return true;
+                                } else { alert(t('alert.passwordTooShort')); return false; }
+                              }}
+                            ]}
+                          />
+                        </div>
+                      )}
+
+                      {/* ══════ ABOUT TAB ══════ */}
+                      {settingsTab === 'about' && (
+                        <div style={{ animation: 'fadeInUp 0.2s ease' }}>
+
+                          {/* App Info Card */}
+                          <div style={{
+                            background: 'linear-gradient(135deg,rgba(37,99,235,0.12),rgba(16,185,129,0.08))',
+                            borderRadius: '20px', padding: '28px', marginBottom: '18px', textAlign: 'center',
+                            border: '1px solid rgba(37,99,235,0.15)'
+                          }}>
+                            <div style={{
+                              width: '72px', height: '72px', borderRadius: '20px', margin: '0 auto 16px',
+                              background: 'linear-gradient(135deg,#2563EB,#1d4ed8)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: '2rem', boxShadow: '0 8px 24px rgba(37,99,235,0.35)'
+                            }}>🏢</div>
+                            <h2 style={{ margin: '0 0 4px', fontSize: '1.3rem', fontWeight: '900', color: 'var(--app-text)' }}>DYR</h2>
+                            <p style={{ margin: '0 0 6px', fontSize: '0.8rem', color: '#64748B' }}>Real Estate Installment Management</p>
+                            <div style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(37,99,235,0.1)',
+                              padding: '5px 14px', borderRadius: '20px', border: '1px solid rgba(37,99,235,0.2)'
+                            }}>
+                              <span style={{ fontSize: '0.7rem', fontWeight: '700', color: '#2563EB' }}>Version {APP_VERSION}</span>
+                            </div>
+                          </div>
+
+                          {/* Info rows */}
+                          <div style={{
+                            background: 'var(--app-bg-card)', borderRadius: '18px',
+                            padding: '6px 22px', marginBottom: '18px',
+                            boxShadow: appSettings.theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)'
+                          }}>
+                            {[
+                              { label: t('settings.version'), value: APP_VERSION },
+                              { label: t('settings.developer'), value: 'Mohamed Hassan' },
+                              { label: t('settings.contact'), value: '+20 100 851 5995' },
+                            ].map((row, i, arr) => (
+                              <div key={row.label} style={{
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                padding: '16px 0',
+                                borderBottom: i < arr.length - 1 ? `1px solid ${appSettings.theme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` : 'none'
+                              }}>
+                                <span style={{ fontSize: '0.85rem', color: '#64748B' }}>{row.label}</span>
+                                <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--app-text)' }}>{row.value}</span>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Updates */}
+                          {(isDesktop || isNativeMobile) && (
+                            <div style={{
+                              background: 'var(--app-bg-card)', borderRadius: '18px',
+                              padding: '22px', marginBottom: '18px',
+                              boxShadow: appSettings.theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)'
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                                <IonIcon icon={cloudDownload} style={{ fontSize: '22px', color: '#2563EB' }} />
+                                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '700', color: 'var(--app-text)' }}>{t('settings.updates')}</h3>
+                              </div>
+                              <div style={{ textAlign: 'center' }}>
+                                {(updateStatus === 'idle' || updateStatus === 'not-available' || updateStatus === 'error') && (
+                                  <IonButton expand="block" fill="outline" onClick={handleCheckForUpdate} style={{ '--border-radius': '12px' }}>
+                                    {t('settings.checkForUpdates')}
+                                  </IonButton>
+                                )}
+                                {updateStatus === 'checking' && <div style={{ padding: '10px', color: '#64748B' }}>{t('settings.checkingForUpdates')}</div>}
+                                {updateStatus === 'available' && (
+                                  <div>
+                                    <p style={{ color: '#2563EB', marginBottom: '10px' }}>{t('settings.updateAvailable', { version: updateInfo?.version })}</p>
+                                    <IonButton expand="block" style={{ '--color': '#FFFFFF', '--background': '#2563EB', '--border-radius': '12px' }} onClick={handleDownloadUpdate}>{t('settings.downloadAndInstall')}</IonButton>
+                                  </div>
+                                )}
+                                {updateStatus === 'downloading' && (
+                                  <div>
+                                    <p style={{ color: '#2563EB', marginBottom: '5px' }}>{t('settings.downloading', { percent: Math.round(updateProgress.percent) })}</p>
+                                    <div style={{ background: appSettings.theme === 'dark' ? 'rgba(255,255,255,0.08)' : '#F1F5F9', borderRadius: '4px', height: '8px', width: '100%', marginBottom: '5px' }}>
+                                      <div style={{ height: '100%', background: '#2563EB', width: `${updateProgress.percent}%`, borderRadius: '4px', transition: 'width 0.2s' }} />
+                                    </div>
+                                    <small style={{ color: '#64748B' }}>{(updateProgress.bytesPerSecond / 1024 / 1024).toFixed(2)} MB/s</small>
+                                  </div>
+                                )}
+                                {updateStatus === 'downloaded' && (
+                                  <div>
+                                    <p style={{ color: '#10B981', marginBottom: '10px', fontWeight: '700', fontSize: '1rem' }}>✓ {t('settings.updateReady')}</p>
+                                    <p style={{ color: '#64748B', fontSize: '0.82rem', marginBottom: '14px' }}>{t('settings.updateReadyHint') || 'The update is ready. Click below to restart and install.'}</p>
+                                    <IonButton
+                                      expand="block"
+                                      style={{ '--color': '#FFFFFF', '--background': '#10B981', '--border-radius': '12px', fontWeight: '800' }}
+                                      onClick={handleQuitAndInstall}
+                                    >
+                                      🔄 {t('settings.restartAndInstall') || 'Restart & Install Now'}
+                                    </IonButton>
+                                  </div>
+                                )}
+                                {updateStatus === 'not-available' && <p style={{ color: '#64748B', marginTop: '10px', fontSize: '0.9rem' }}>{t('settings.latestVersion')}</p>}
+                                {updateStatus === 'error' && <p style={{ color: '#DC2626', marginTop: '10px', fontSize: '0.9rem' }}>{t('common.error')}: {updateError}</p>}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* What's New / Changelog */}
+                          {(() => {
+                            const CHANGELOG_DATA = [
+                              {
+                                version: '1.8.33', date: '2026-05-02',
+                                items: [
+                                  { type: 'new', text: 'Plan Enforcement — Login now email + password only (matching portal). Local username fallback removed for all non-owner accounts.' },
+                                  { type: 'new', text: 'Plan Enforcement — Cheques tab is hidden and blocked for Free and Light plan accounts. Upgrade to Pro or Elite to unlock.' },
+                                  { type: 'new', text: 'Plan Enforcement — Database bypass detection: if an account\'s existing buildings or units exceed their plan limits, a persistent banner is shown and adding more is blocked.' },
+                                  { type: 'new', text: 'Plan Enforcement — Inactive/unpaid accounts (subscription_status != active) are now treated as Free Trial regardless of plan column, matching portal display.' },
+                                  { type: 'new', text: 'Profile Dropdown — Plan badge now shown (Free Trial / Light / Pro / Elite / Owner) with color coding and subscription expiry date.' },
+                                  { type: 'fix', text: 'Fixed ReferenceError: Cannot access loggedInUser before initialization — navigateToView now uses a ref to avoid TDZ crash on startup.' },
+                                ]
+                              },
+                              {
+                                version: '1.8.32', date: '2026-04-30',
+                                items: [
+                                  { type: 'fix', text: 'Contract Statement PDF — last installment rows no longer overlapped by the branding footer. Fixed page-slice calculation to use exact canvas pixel ratio and added a proper content-height buffer.' },
+                                  { type: 'fix', text: 'Contract Statement PDF — Unit Layout image now always starts on a fresh page together with its header. Layout section moved after the payment schedule table to prevent the header/image being split across pages.' },
+                                  { type: 'new', text: 'Contract Statement PDF — terminated contracts print in red (title: TERMINATED CONTRACT), resold in amber (RESOLD CONTRACT), active contracts remain green.' },
+                                  { type: 'new', text: 'Notification filter (All Overdue / Rejected Cheques / Any Cheque) is now saved to local storage and restored when the app restarts.' },
+                                  { type: 'fix', text: 'User profile pill — dropdown now opens/closes on click instead of hover. Clicking anywhere outside the dropdown closes it automatically.' },
+                                ]
+                              },
+                              {
+                                version: '1.8.31', date: '2026-04-30',
+                                items: [
+                                  { type: 'fix', text: 'Notification Bell — terminated/resold unit installments no longer appear in the overdue or upcoming counters in the notification center.' },
+                                ]
+                              },
+                              {
+                                version: '1.8.30', date: '2026-04-30',
+                                items: [
+                                  { type: 'new', text: 'Terminated contracts — installment cards for terminated units now display with a vivid full-card red background, red borders, and a ✕ TERMINATED badge for instant visibility.' },
+                                  { type: 'new', text: 'Installments tab — new "Show Terminated / Resold" toggle (off by default). Terminated/resold records are hidden from search, stats, export, and reports unless the toggle is on.' },
+                                  { type: 'new', text: 'Overdue / Feedback tab — installments for units with no active contract (terminated/resold, no new buyer) are automatically excluded.' },
+                                  { type: 'new', text: 'Customer Reminders tab — same exclusion: terminated/resold unit installments no longer appear as upcoming reminders.' },
+                                  { type: 'new', text: 'Customer cards — unit badges are now color-coded by contract status: green (✓ ACTIVE), red (✕ TERMINATED), amber (↺ RESOLD). Joint Purchaser badges follow the same logic.' },
+                                ]
+                              },
+                              {
+                                version: '1.8.29', date: '2026-04-29',
+                                items: [
+                                  { type: 'fix', text: 'Receipt — Payment Date now shows the installment\'s scheduled due date (or cheque date if recorded), not the latest partial payment date.' },
+                                  { type: 'fix', text: 'Receipt — dates stored as Excel serial numbers were showing 1 day earlier in UTC+ timezones (e.g. Egypt UTC+3). Fixed Excel epoch to use UTC midnight.' },
+                                ]
+                              },
+                              {
+                                version: '1.8.27', date: '2026-04-27',
+                                items: [
+                                  { type: 'fix', text: 'WhatsApp buttons beside customers now open the WhatsApp app directly — only falls back to WhatsApp Web if the app is not installed on the device.' },
+                                  { type: 'fix', text: 'Installment card — cheque details panel is now wider, using space reclaimed from the unit ID and customer columns for better readability.' },
+                                  { type: 'fix', text: 'Installment card — partial transfer/cash payments listed separately below the cheque STATUS line instead of being merged into the cheque number field.' },
+                                  { type: 'new', text: 'Installment card — each partial transfer or cash payment now shows its payment date as a blue badge alongside the method, reference, and amount.' },
+                                  { type: 'fix', text: 'Installment card — customer name column is now right-to-left (RTL) aligned for Arabic names, with the reason label sitting directly below the name.' },
+                                  { type: 'fix', text: 'Installment card — unit ID column given more space so IDs never wrap or get cut off.' },
+                                  { type: 'fix', text: 'Installment card — payment date on receipt now correctly shows the actual payment date, not the scheduled due date.' },
+                                ]
+                              },
+                              {
+                                version: '1.8.26', date: '2026-04-21',
+                                items: [
+                                  { type: 'new', text: 'Late Fee Calculator -- segment-aware engine: fees accrue on outstanding balance per day. Partial payments correctly reduce the base before the next segment.' },
+                                  { type: 'new', text: 'Installment cards -- Fee (orange) and Total Due = Rest + Fee (red) shown on every overdue card. Base amount is never changed.' },
+                                  { type: 'new', text: 'Contract installment table -- Fee and Total Due also shown in the Amount cell for quick collection reference.' },
+                                  { type: 'new', text: 'Admin settings -- Monthly Rate (%) and Grace Period (days) configurable in Settings > Security > Late Fee Settings.' },
+                                  { type: 'new', text: 'Fee Waiver -- admin can waive fees per installment from the Overdue Report (admin password required). Shows green tick when waived.' },
+                                  { type: 'fix', text: 'Grace period is a free window: if missed, fees are owed from the original due date, not from day 8.' },
+                                ]
+                              },
+                              {
+                                version: '1.8.25', date: '2026-04-21',
+                                items: [
+                                  { type: 'new', text: 'AI Assistant (DYRai) -- local AI panel powered by Ollama (qwen2.5:7b). Fully private, 100% on-device with streaming responses and bilingual Arabic/English support.' },
+                                  { type: 'new', text: 'Smart Unit Context -- mention a unit ID and the AI pulls live installment, payment, and customer data into the prompt.' },
+                                  { type: 'new', text: 'Offers Lifecycle Awareness -- AI understands Active / Cancelled / Contracted offer stages accurately.' },
+                                  { type: 'new', text: 'Stop Button -- cancels AI streaming mid-response instantly via AbortController.' },
+                                  { type: 'new', text: 'Installments Excel export -- Unit ID and Customers on Unit columns (Owner, Guarantor, Joint Purchasers). Owner name resolved from contract record.' },
+                                ]
+                              },
+                              {
+                                version: '1.8.23', date: '2026-04-20',
+                                items: [
+                                  { type: 'new', text: 'Contract tab — inline Edit Mode for installments, protected by admin password. Edit type, date, amount, cheque# and bank directly in the table.' },
+                                  { type: 'new', text: 'Single "Save All Changes" button saves every installment edit in one batch — no per-row saves needed.' },
+                                  { type: 'fix', text: 'Edit mode date fields now correctly pre-fill with existing dates (Excel serial dates converted to YYYY-MM-DD for date inputs).' },
+                                ]
+                              },
+
+                              {
+                                version: '1.8.22', date: '2026-04-19',
+                                items: [
+                                  { type: 'new', text: 'Excel Import for Customers — new 2-step modal (Download Template → Upload File) for bulk importing customer records from Excel.' },
+                                  { type: 'new', text: 'Excel Import consistency — Installments & Units import modals now match the new branded modal interface. Old confirm()-based prompts replaced.' },
+                                  { type: 'new', text: 'Customer Excel Template — clean header-only template (Name, Phone, Phone2, Email, National ID, Notes) available to download before importing.' },
+                                ]
+                              },
+                              {
+                                version: '1.8.21', date: '2026-04-18',
+                                items: [
+                                  { type: 'new', text: 'Executive Dashboard — collected & overdue figures now exactly match the Installments tab headers (fixed data source and calculation logic).' },
+                                  { type: 'new', text: 'Executive Dashboard — area breakdown card showing m² and % of total for each unit status (Available, Contracted, Offered, Locked).' },
+                                  { type: 'new', text: 'Executive Dashboard — Locked units now have their own KPI card separate from In Offer.' },
+                                  { type: 'new', text: 'Executive Dashboard — unit counts & areas now derived from contracts/offers arrays (matching inventory), not stale unit.status field.' },
+                                  { type: 'new', text: 'Wallets — delete is now admin/owner only and requires password confirmation before deletion.' },
+                                  { type: 'new', text: 'Customers — cannot be deleted if linked to any contracts or offers. Shows a blocking alert with the count of linked records.' },
+                                  { type: 'new', text: 'Sales Agents — cannot be deleted if linked to any contracts or offers. Also added a confirm dialog before deletion.' },
+                                ]
+                              },
+                              {
+                                version: '1.8.20', date: '2026-04-16',
+                                items: [
+                                  { type: 'new', text: 'Building cards — AVAILABLE count now excludes locked units and shows their total area (m²) inline.' },
+                                  { type: 'new', text: 'Building detail page — new inventory stats banner showing Available / Locked / Contracted / Offered with unit count and total area for each.' },
+                                  { type: 'fix', text: 'Building cards area section — Contracted area shown in green, Offered area in amber, each with % of total building area.' },
+                                ]
+                              },
+                              {
+                                version: '1.8.19', date: '2026-04-16',
+                                items: [
+                                  { type: 'fix', text: 'Contracts & Offers search bar — typing was clearing the input on every re-render. Now preserves text correctly.' },
+                                  { type: 'fix', text: 'Offer payment receipt — Reference/Notes field was missing from the receipt. Now shows correctly.' },
+                                  { type: 'fix', text: 'Receipt payment history — removed always-empty Notes column. Reference column now shows the entered value.' },
+                                  { type: 'fix', text: 'Receipt dates were showing 1 day earlier than actual in UTC+ timezones. Fixed timezone parsing bug.' },
+                                  { type: 'new', text: 'Received By on receipts — all receipts now print the logged-in user\'s name in the signature block.' },
+                                ]
+                              },
+                              {
+                                version: '1.8.16', date: '2026-04-15',
+                                items: [
+                                  { type: 'fix', text: 'What\'s New version badge now always reflects the actual running app version' },
+                                ]
+                              },
+                              {
+                                version: '1.8.15', date: '2026-04-15',
+                                items: [
+                                  { type: 'fix', text: 'What\'s New panel now correctly shows current version as CURRENT — version badge was one release behind' },
+                                ]
+                              },
+                              {
+                                version: '1.8.14', date: '2026-04-15',
+                                items: [
+                                  { type: 'new', text: 'In-app changelog now kept up to date with every release — versions 1.8.11–1.8.13 backfilled' },
+                                ]
+                              },
+                              {
+                                version: '1.8.13', date: '2026-04-15',
+                                items: [
+                                  { type: 'fix', text: 'Changelog "What\'s New" panel now updated with every release' },
+                                ]
+                              },
+                              {
+                                version: '1.8.12', date: '2026-04-15',
+                                items: [
+                                  { type: 'fix', text: 'Payment attachments now correctly saved to payment record — file was uploaded but filename was never stored in the database' },
+                                ]
+                              },
+                              {
+                                version: '1.8.11', date: '2026-04-15',
+                                items: [
+                                  { type: 'fix', text: 'Fixed Settings page crash (React Error #310): useState hook must not be used inside an IIFE in JSX render' },
+                                ]
+                              },
+                              {
+                                version: '1.8.10', date: '2026-04-15',
+                                items: [
+                                  { type: 'new', text: 'In-app "What\'s New" changelog panel added to Settings' },
+                                ]
+                              },
+                              {
+                                version: '1.8.9', date: '2026-04-15',
+                                items: [
+                                  { type: 'fix', text: 'WhatsApp reminder message now correctly shows upcoming installment date & amount instead of overdue text' },
+                                  { type: 'fix', text: 'Collection Intelligence search bar now filters in real-time on every keystroke' },
+                                  { type: 'fix', text: 'Payment attachments pasted from clipboard now upload correctly when recording payment' },
+                                ]
+                              },
+                              {
+                                version: '1.8.8', date: '2026-04-15',
+                                items: [
+                                  { type: 'fix', text: 'Resolved installer error "Failed to uninstall old application files: 2" during updates' },
+                                  { type: 'fix', text: 'Desktop & Start Menu shortcuts now always recreated after update' },
+                                  { type: 'fix', text: 'Download progress bar now shows immediately when update begins' },
+                                  { type: 'new', text: 'Added "Restart & Install Now" button instead of auto-restarting silently' },
+                                ]
+                              },
+                              {
+                                version: '1.7.9', date: '2026-04-11',
+                                items: [
+                                  { type: 'new', text: 'Broker commission statement generation with accurate payment schedules' },
+                                  { type: 'fix', text: 'Installment year and frequency now computed from real installment records' },
+                                ]
+                              },
+                              {
+                                version: '1.7.7', date: '2026-04-09',
+                                items: [
+                                  { type: 'new', text: 'Broker Commission System with automated agent assignment' },
+                                  { type: 'fix', text: 'Single-session login security enforced' },
+                                  { type: 'fix', text: 'Android update check mechanism fixed' },
+                                ]
+                              },
+                            ];
+                            const tagColor = (type) => type === 'new'
+                              ? { bg: 'rgba(16,185,129,0.12)', color: '#10B981', label: 'NEW' }
+                              : { bg: 'rgba(59,130,246,0.12)', color: '#2563EB', label: 'FIX' };
+                            return (
+                              <div style={{ marginBottom: '18px', borderRadius: '18px', background: 'var(--app-bg-card)', boxShadow: appSettings.theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+                                <button
+                                  onClick={() => setShowChangelog(p => !p)}
+                                  style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: '18px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <span style={{ fontSize: '18px' }}>📋</span>
+                                    <span style={{ fontSize: '0.95rem', fontWeight: '700', color: 'var(--app-text)' }}>What's New</span>
+                                    <span style={{ fontSize: '0.72rem', fontWeight: '700', background: 'rgba(37,99,235,0.12)', color: '#2563EB', padding: '2px 8px', borderRadius: '20px' }}>v{APP_VERSION}</span>
+                                  </div>
+                                  <span style={{ color: '#64748B', fontSize: '0.8rem', transition: 'transform 0.2s', display: 'inline-block', transform: showChangelog ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
+                                </button>
+                                {showChangelog && (
+                                  <div style={{ padding: '0 16px 16px' }}>
+                                    {CHANGELOG_DATA.map((release, ri) => (
+                                      <div key={release.version} style={{ marginBottom: ri < CHANGELOG_DATA.length - 1 ? '16px' : 0 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                          <span style={{ fontWeight: '800', color: 'var(--app-text)', fontSize: '0.88rem' }}>v{release.version}</span>
+                                          <span style={{ fontSize: '0.72rem', color: '#94A3B8', background: 'rgba(148,163,184,0.1)', padding: '1px 7px', borderRadius: '10px' }}>{release.date}</span>
+                                          {ri === 0 && <span style={{ fontSize: '0.7rem', fontWeight: '700', background: 'rgba(16,185,129,0.12)', color: '#10B981', padding: '1px 7px', borderRadius: '10px' }}>CURRENT</span>}
+                                        </div>
+                                        <div style={{ paddingLeft: '4px', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                                          {release.items.map((item, ii) => {
+                                            const t2 = tagColor(item.type);
+                                            return (
+                                              <div key={ii} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '0.82rem' }}>
+                                                <span style={{ flexShrink: 0, fontWeight: '700', fontSize: '0.65rem', background: t2.bg, color: t2.color, padding: '2px 5px', borderRadius: '4px', marginTop: '1px' }}>{t2.label}</span>
+                                                <span style={{ color: 'var(--app-text-muted, #64748B)', lineHeight: '1.4' }}>{item.text}</span>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                        {ri < CHANGELOG_DATA.length - 1 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)', margin: '12px 0 0' }} />}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             );
-                          })}
-                        </div>
-                      </div>
+                          })()}
 
-                      <div>
-                        <label style={{ color: '#64748B', display: 'block', marginBottom: '8px' }}>{t('settings.fontSize')}</label>
-                        <div style={{ display: 'flex', gap: '10px' }}>
-                          {['small', 'medium', 'large'].map(size => (
-                            <IonButton
-                              key={size}
-                              fill={appSettings.fontSize === size ? 'solid' : 'outline'}
-                              color={appSettings.fontSize === size ? 'warning' : 'medium'}
-                              onClick={() => {
-                                setAppSettings(prev => ({ ...prev, fontSize: size }));
-                                localStorage.setItem('app_fontSize', size);
-                              }}
-                              style={{ '--border-radius': '12px', textTransform: 'capitalize' }}
-                            >
-                              {t(`settings.${size}`)}
-                            </IonButton>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Financial Configuration Section */}
-                    <div style={{ background: 'var(--app-bg-card)', borderRadius: '16px', padding: '20px', marginBottom: '20px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-                        <IonIcon icon={cashOutline} style={{ fontSize: '24px', color: '#2563EB' }} />
-                        <h3 style={{ margin: 0, color: '#1E293B' }}>{t('settings.financialConfiguration')}</h3>
-                      </div>
-
-                      <div style={{ marginBottom: '15px' }}>
-                        <label style={{ color: '#64748B', display: 'block', marginBottom: '8px' }}>{t('settings.globalCurrency')}</label>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                          {['EGP', 'USD', 'EUR', 'SAR', 'QAR', 'KWD'].map(cur => (
-                            <IonButton
-                              key={cur}
-                              size="small"
-                              fill={appSettings.currency === cur ? 'solid' : 'outline'}
-                              color={appSettings.currency === cur ? 'success' : 'medium'}
-                              onClick={() => {
-                                setCurrency(cur);
-                              }}
-                              style={{ '--border-radius': '8px', minWidth: '70px', fontWeight: 'bold' }}
-                            >
-                              {cur}
-                            </IonButton>
-                          ))}
-                        </div>
-                        <p style={{ margin: '10px 0 0', fontSize: '0.75rem', color: '#64748B'    }}>{t('settings.currencyHint')}</p>
-                      </div>
-                    </div>
-
-                    {/* Notifications Section */}
-                    <div style={{ background: 'var(--app-bg-card)', borderRadius: '16px', padding: '20px', marginBottom: '20px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-                        <IonIcon icon={notificationsOutline} style={{ fontSize: '24px', color: '#2563EB' }} />
-                        <h3 style={{ margin: 0, color: '#1E293B' }}>{t('settings.notifications')}</h3>
-                      </div>
-
-                      <IonItem lines="none" style={{ '--background': 'transparent', '--padding-start': '0' }}>
-                        <IonLabel style={{ color: '#1E293B' }}>{t('settings.paymentReminders')}</IonLabel>
-                        <IonButton
-                          slot="end"
-                          fill={appSettings.paymentReminders ? 'solid' : 'outline'}
-                          color={appSettings.paymentReminders ? 'success' : 'medium'}
-                          size="small"
-                          onClick={() => {
-                            const newVal = !appSettings.paymentReminders;
-                            setAppSettings(prev => ({ ...prev, paymentReminders: newVal }));
-                            localStorage.setItem('app_paymentReminders', String(newVal));
-                          }}
-                        >
-                          {appSettings.paymentReminders ? t('common.on') : t('common.off')}
-                        </IonButton>
-                      </IonItem>
-
-                      <IonItem lines="none" style={{ '--background': 'transparent', '--padding-start': '0' }}>
-                        <IonLabel style={{ color: '#1E293B' }}>{t('settings.overdueAlerts')}</IonLabel>
-                        <IonButton
-                          slot="end"
-                          fill={appSettings.overdueAlerts ? 'solid' : 'outline'}
-                          color={appSettings.overdueAlerts ? 'success' : 'medium'}
-                          size="small"
-                          onClick={() => {
-                            const newVal = !appSettings.overdueAlerts;
-                            setAppSettings(prev => ({ ...prev, overdueAlerts: newVal }));
-                            localStorage.setItem('app_overdueAlerts', String(newVal));
-                          }}
-                        >
-                          {appSettings.overdueAlerts ? t('common.on') : t('common.off')}
-                        </IonButton>
-                      </IonItem>
-                    </div>
-
-                    {/* Data & Branding Section */}
-                    <div style={{ background: 'var(--app-bg-card)', borderRadius: '16px', padding: '20px', marginBottom: '20px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-                        <IonIcon icon={business} style={{ fontSize: '24px', color: '#2563EB' }} />
-                        <h3 style={{ margin: 0, color: '#1E293B' }}>{t('settings.companyIdentity')}</h3>
-                      </div>
-
-                      <div style={{ marginBottom: '15px' }}>
-                        <label style={{ color: '#64748B', display: 'block', marginBottom: '8px' }}>{t('settings.companyName')}</label>
-                        <IonInput
-                          value={branding.name}
-                          onIonChange={e => setBranding({ ...branding, name: e.detail.value })}
-                          placeholder={t('settings.companyNamePlaceholder')}
-                          style={{ background: '#ffffff', borderRadius: '8px', color: '#1E293B', '--padding-start': '10px' }}
-                        />
-                      </div>
-
-                      {/* Company Logo — Light & Dark */}
-                      <div style={{ marginBottom: '20px' }}>
-                        <label style={{ color: '#2563EB', display: 'block', marginBottom: '8px', fontSize: '0.75rem', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px' }}>Company Logo</label>
-                        <p style={{ margin: '0 0 12px', fontSize: '0.75rem', color: '#64748B' }}>Upload separate logos for light and dark themes. The app switches automatically.</p>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                          {/* Light Theme Logo */}
-                          <div style={{ background: '#F8FAFC', borderRadius: '12px', padding: '14px', border: '1px solid #E5E7EB' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
-                              <span style={{ fontSize: '1rem' }}>☀️</span>
-                              <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#1E293B', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Light Theme</span>
-                            </div>
-                            <div
-                              onClick={() => document.getElementById('set-logo-light').click()}
-                              style={{
-                                width: '100%', height: '70px', borderRadius: '10px',
-                                background: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                cursor: 'pointer', overflow: 'hidden',
-                                border: branding.logo ? '2px solid #E5E7EB' : '2px dashed #CBD5E1',
-                                backgroundImage: branding.logo ? `url(${branding.logo})` : 'none',
-                                backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center'
-                              }}
-                            >
-                              {!branding.logo && <span style={{ color: '#94A3B8', fontSize: '0.65rem', fontWeight: '600' }}>Upload</span>}
-                            </div>
-                            <input type="file" id="set-logo-light" style={{ display: 'none' }} onChange={(e) => handleImagePick('logo', e)} accept="image/*" />
-                            {branding.logo && (
-                              <IonButton fill="clear" size="small" style={{ '--color': '#DC2626', fontSize: '0.7rem', marginTop: '4px' }} onClick={() => setBranding({ ...branding, logo: null })}>
-                                {t('common.remove')}
-                              </IonButton>
-                            )}
-                          </div>
-                          {/* Dark Theme Logo */}
-                          <div style={{ background: '#1E293B', borderRadius: '12px', padding: '14px', border: '1px solid #334155' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
-                              <span style={{ fontSize: '1rem' }}>🌙</span>
-                              <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#E2E8F0', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Dark Theme</span>
-                            </div>
-                            <div
-                              onClick={() => document.getElementById('set-logo-dark').click()}
-                              style={{
-                                width: '100%', height: '70px', borderRadius: '10px',
-                                background: '#0F172A', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                cursor: 'pointer', overflow: 'hidden',
-                                border: branding.logoDark ? '2px solid #334155' : '2px dashed #475569',
-                                backgroundImage: branding.logoDark ? `url(${branding.logoDark})` : 'none',
-                                backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center'
-                              }}
-                            >
-                              {!branding.logoDark && <span style={{ color: '#64748B', fontSize: '0.65rem', fontWeight: '600' }}>Upload</span>}
-                            </div>
-                            <input type="file" id="set-logo-dark" style={{ display: 'none' }} onChange={(e) => handleImagePick('logoDark', e)} accept="image/*" />
-                            {branding.logoDark && (
-                              <IonButton fill="clear" size="small" style={{ '--color': '#F87171', fontSize: '0.7rem', marginTop: '4px' }} onClick={() => setBranding({ ...branding, logoDark: null })}>
-                                {t('common.remove')}
-                              </IonButton>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <label style={{ color: '#2563EB', display: 'block', marginBottom: '8px', fontSize: '0.75rem', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px' }}>Portrait PDF Branding</label>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' }}>
-                        <div>
-                          <label style={{ color: '#64748B', display: 'block', marginBottom: '5px' }}>Portrait Header</label>
-                          <div
-                            onClick={() => document.getElementById('set-header').click()}
-                            style={{
-                              height: '80px', background: '#ffffff', borderRadius: '8px',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                              backgroundImage: branding.header ? `url(${branding.header})` : 'none',
-                              backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center',
-                              border: '1px dashed #555'
-                            }}
-                          >
-                            {!branding.header && <span style={{ fontSize: '0.7rem', color: '#64748B' }}>{t('settings.clickToUpload')}</span>}
-                          </div>
-                          <input type="file" id="set-header" style={{ display: 'none' }} onChange={(e) => handleImagePick('header', e)} accept="image/*" />
-                          {branding.header && <IonButton fill="clear" size="small" style={{ '--color': '#FFFFFF', '--background': '#DC2626', color: '#FFFFFF' }} onClick={() => setBranding({ ...branding, header: null })}>{t('common.remove')}</IonButton>}
-                        </div>
-                        <div>
-                          <label style={{ color: '#64748B', display: 'block', marginBottom: '5px' }}>Portrait Footer</label>
-                          <div
-                            onClick={() => document.getElementById('set-footer').click()}
-                            style={{
-                              height: '80px', background: '#ffffff', borderRadius: '8px',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                              backgroundImage: branding.footer ? `url(${branding.footer})` : 'none',
-                              backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center',
-                              border: '1px dashed #555'
-                            }}
-                          >
-                            {!branding.footer && <span style={{ fontSize: '0.7rem', color: '#64748B' }}>{t('settings.clickToUpload')}</span>}
-                          </div>
-                          <input type="file" id="set-footer" style={{ display: 'none' }} onChange={(e) => handleImagePick('footer', e)} accept="image/*" />
-                          {branding.footer && <IonButton fill="clear" size="small" style={{ '--color': '#FFFFFF', '--background': '#DC2626', color: '#FFFFFF' }} onClick={() => setBranding({ ...branding, footer: null })}>{t('common.remove')}</IonButton>}
-                        </div>
-                      </div>
-
-                      <label style={{ color: '#2563EB', display: 'block', marginBottom: '8px', fontSize: '0.75rem', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px' }}>Landscape PDF Branding</label>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '10px' }}>
-                        <div>
-                          <label style={{ color: '#64748B', display: 'block', marginBottom: '5px' }}>Landscape Header</label>
-                          <div
-                            onClick={() => document.getElementById('set-landscape-header').click()}
-                            style={{
-                              height: '60px', background: '#ffffff', borderRadius: '8px',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                              backgroundImage: branding.landscapeHeader ? `url(${branding.landscapeHeader})` : 'none',
-                              backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center',
-                              border: '1px dashed #555'
-                            }}
-                          >
-                            {!branding.landscapeHeader && <span style={{ fontSize: '0.7rem', color: '#64748B' }}>{t('settings.clickToUpload')}</span>}
-                          </div>
-                          <input type="file" id="set-landscape-header" style={{ display: 'none' }} onChange={(e) => handleImagePick('landscapeHeader', e)} accept="image/*" />
-                          {branding.landscapeHeader && <IonButton fill="clear" size="small" style={{ '--color': '#FFFFFF', '--background': '#DC2626', color: '#FFFFFF' }} onClick={() => setBranding({ ...branding, landscapeHeader: null })}>{t('common.remove')}</IonButton>}
-                        </div>
-                        <div>
-                          <label style={{ color: '#64748B', display: 'block', marginBottom: '5px' }}>Landscape Footer</label>
-                          <div
-                            onClick={() => document.getElementById('set-landscape-footer').click()}
-                            style={{
-                              height: '60px', background: '#ffffff', borderRadius: '8px',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                              backgroundImage: branding.landscapeFooter ? `url(${branding.landscapeFooter})` : 'none',
-                              backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center',
-                              border: '1px dashed #555'
-                            }}
-                          >
-                            {!branding.landscapeFooter && <span style={{ fontSize: '0.7rem', color: '#64748B' }}>{t('settings.clickToUpload')}</span>}
-                          </div>
-                          <input type="file" id="set-landscape-footer" style={{ display: 'none' }} onChange={(e) => handleImagePick('landscapeFooter', e)} accept="image/*" />
-                          {branding.landscapeFooter && <IonButton fill="clear" size="small" style={{ '--color': '#FFFFFF', '--background': '#DC2626', color: '#FFFFFF' }} onClick={() => setBranding({ ...branding, landscapeFooter: null })}>{t('common.remove')}</IonButton>}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ background: 'var(--app-bg-card)', borderRadius: '16px', padding: '20px', marginBottom: '20px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-                        <IonIcon icon={cloudDownload} style={{ fontSize: '24px', color: '#2563EB' }} />
-                        <h3 style={{ margin: 0, color: '#1E293B' }}>{t('settings.databaseConnection')}</h3>
-                      </div>
-
-                      <p style={{ fontSize: '0.8rem', color: '#64748B'   , marginBottom: '15px' }}>
-                        {t('settings.databaseConnectionHint')}
-                      </p>
-
-                      <IonItem lines="none" style={{ '--background': '#ffffff', borderRadius: '8px', marginBottom: '15px' }}>
-                        <IonLabel>{t('settings.connectionMode')}</IonLabel>
-                        <IonSelect value={dbConfig.type} onIonChange={e => setDbConfig({ ...dbConfig, type: e.detail.value })}>
-                          <IonSelectOption value="local">{t('settings.localStorage')}</IonSelectOption>
-                          <IonSelectOption value="hosted">{t('settings.cloudSync')}</IonSelectOption>
-                          <IonSelectOption value="network">{t('settings.networkServer')}</IonSelectOption>
-                          {!isNativeMobile && <IonSelectOption value="express">Express Server (LAN)</IonSelectOption>}
-                        </IonSelect>
-                      </IonItem>
-
-                      {dbConfig.type === 'local' && (
-                        <div style={{ padding: '15px', background: 'rgba(0,0,0,0.2)', borderRadius: '10px', marginBottom: '15px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                          <p style={{ margin: '0 0 8px', fontSize: '0.75rem', color: '#64748B' }}>{t('settings.currentDbLocation')}:</p>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <code style={{ flex: 1, background: '#ffffff', padding: '8px', fontSize: '0.75rem', color: '#2563EB', wordBreak: 'break-all', borderRadius: '4px' }}>
-                              {currentDbPath}
-                            </code>
-                            <IonButton
-                              size="small"
-                              style={{ '--color': '#FFFFFF', '--background': '#64748B', color: '#FFFFFF', margin: 0 }}
-                              fill="solid"
-                              onClick={handleChangeDbFolder}
-                            >
-                              <IonIcon icon={createOutline} />
-                            </IonButton>
-                          </div>
-                          <p style={{ fontSize: '0.7rem', color: '#64748B'   , marginTop: '10px', lineHeight: '1.4' }}>
-                            <strong>{t('common.tip')}:</strong> {t('settings.networkPathTip')} <code style={{ color: '#2563EB' }}>\\192.168.1.30\Shared\Database</code>.
-                          </p>
-                          {isNativeMobile && (
-                            <p style={{ fontSize: '0.65rem', color: '#64748B', marginTop: '8px' }}>
-                              <strong>{t('settings.mobileNote')}:</strong> {t('settings.mobileLocalDbHint')}
-                            </p>
-                          )}
-                        </div>
-                      )}
-
-                      {(dbConfig.type === 'local' || dbConfig.type === 'express') && (
-                        <div style={{ padding: '15px', background: 'rgba(0,0,0,0.2)', borderRadius: '10px', marginBottom: '15px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                          <p style={{ margin: '0 0 8px', fontSize: '0.75rem', color: '#64748B' }}>Backup Location:</p>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <code style={{ flex: 1, background: '#ffffff', padding: '8px', fontSize: '0.75rem', color: '#059669', wordBreak: 'break-all', borderRadius: '4px' }}>
-                              {currentBackupPath}
-                            </code>
-                            <IonButton
-                              size="small"
-                              fill="solid"
-                              style={{ '--color': '#FFFFFF', '--background': '#059669', color: '#FFFFFF', margin: 0 }}
-                              onClick={handleChangeBackupFolder}
-                            >
-                              <IonIcon icon={createOutline} />
-                            </IonButton>
-                            <IonButton
-                              size="small"
-                              fill="solid"
-                              style={{ '--color': '#FFFFFF', '--background': '#64748B', color: '#FFFFFF', margin: 0 }}
-                              onClick={handleResetBackupFolder}
-                            >
-                              Reset
-                            </IonButton>
-                          </div>
-                          <p style={{ fontSize: '0.7rem', color: '#64748B', marginTop: '10px', lineHeight: '1.4' }}>
-                            <strong>Tip:</strong> Click the edit icon to choose a custom backup folder (e.g. external drive). Click <strong>Reset</strong> to revert to default.
-                          </p>
-                        </div>
-                      )}
-
-                      {dbConfig.type === 'network' && (
-                        <div style={{ marginBottom: '15px', padding: '15px', background: 'rgba(56, 128, 255, 0.05)', borderRadius: '10px', border: '1px solid rgba(56, 128, 255, 0.2)' }}>
-                          <h4 style={{ color: '#2563EB', margin: '0 0 10px 0', fontSize: '0.9rem' }}>{t('settings.networkConnection')}</h4>
-                          <p style={{ fontSize: '0.75rem', color: '#64748B'   , marginBottom: '12px' }}>
-                            {t('settings.networkConnectionHint')}
-                          </p>
-
-                          <label style={{ color: '#64748B', display: 'block', fontSize: '0.7rem', marginBottom: '4px' }}>{t('settings.serverIpOrNetworkPath')}</label>
-                          <IonItem lines="none" style={{ '--background': '#1E293B', borderRadius: '8px', marginBottom: '10px' }}>
-                            <IonInput
-                              value={dbConfig.url}
-                              onIonInput={e => setDbConfig({ ...dbConfig, url: e.detail.value })}
-                              placeholder={t('settings.serverIpPlaceholder')}
-                              style={{ color: '#1E293B', fontSize: '0.9rem' }}
-                            />
-                          </IonItem>
-                          <p style={{ fontSize: '0.65rem', color: '#64748B' }}>
-                            {t('settings.mobileIpHint')}
-                          </p>
-                        </div>
-                      )}
-
-                      {dbConfig.type === 'express' && (
-                        <div style={{ marginBottom: '15px', padding: '20px', background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(37, 99, 235, 0.08))', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
-                            <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: expressServerRunning ? '#10B981' : '#64748B', boxShadow: expressServerRunning ? '0 0 10px rgba(16,185,129,0.6)' : 'none', animation: expressServerRunning ? 'pulse 2s infinite' : 'none', transition: 'all 0.3s' }} />
-                            <h4 style={{ color: expressServerRunning ? '#10B981' : '#64748B', margin: 0, fontSize: '0.95rem', fontWeight: '700' }}>
-                              {expressServerRunning ? '🟢 Server Running' : '⚫ Server Stopped'}
-                            </h4>
-                            {expressServerRunning && (
-                              <span style={{ marginLeft: 'auto', background: '#FEF3C7', color: '#92400E', fontSize: '0.65rem', padding: '2px 8px', borderRadius: '20px', fontWeight: '700' }}>
-                                MONITOR MODE
-                              </span>
-                            )}
-                          </div>
-
-                          <p style={{ fontSize: '0.75rem', color: '#64748B', marginBottom: '15px', lineHeight: '1.5' }}>
-                            Start a server so employees on your network can <strong>read and write</strong> data. You (the owner) can monitor all changes in real-time. Data auto-refreshes every 15 seconds.
-                          </p>
-
-                          <IonButton
-                            expand="block"
-                            disabled={expressServerLoading}
-                            style={{
-                              '--color': '#FFFFFF',
-                              '--background': expressServerRunning ? '#DC2626' : '#10B981',
-                              color: '#FFFFFF',
-                              '--border-radius': '10px',
-                              fontWeight: 'bold',
-                              marginBottom: '15px'
-                            }}
-                            onClick={expressServerRunning ? handleStopExpressServer : handleStartExpressServer}
-                          >
-                            {expressServerLoading ? 'Please wait...' : (expressServerRunning ? '⏹ Stop Server' : '▶ Start Server')}
+                          {/* WhatsApp Contact */}
+                          <IonButton expand="block" style={{ '--color': '#FFFFFF', '--background': '#25D366', color: '#FFFFFF', '--border-radius': '14px', height: '52px', fontWeight: '800', fontSize: '1rem', letterSpacing: '0.3px' }}
+                            onClick={() => window.open('https://wa.me/201008515995', '_system')}>
+                            <IonIcon icon={logoWhatsapp} slot="start" />{t('settings.whatsapp')}
                           </IonButton>
-
-                          {/* Database Directory */}
-                          <div style={{
-                            padding: '10px 14px', marginBottom: '15px',
-                            background: '#F8FAFC', borderRadius: '10px',
-                            border: '1px solid #E2E8F0'
-                          }}>
-                            <div style={{ fontSize: '0.7rem', fontWeight: '700', color: '#1E293B', marginBottom: '6px' }}>📁 Database Directory</div>
-                            <div style={{
-                              fontSize: '0.65rem', wordBreak: 'break-all',
-                              background: '#1E293B', color: '#10B981', padding: '8px 10px',
-                              borderRadius: '6px', fontFamily: 'monospace', marginBottom: '8px'
-                            }}>
-                              {currentDbPath || 'Loading...'}
-                            </div>
-                            <button
-                              disabled={expressServerRunning}
-                              onClick={async () => {
-                                if (window.electronAPI && window.electronAPI.selectDBFolder) {
-                                  try {
-                                    const result = await window.electronAPI.selectDBFolder();
-                                    if (result) {
-                                      setCurrentDbPath(result);
-                                      alert('Database path updated to:\n' + result + '\n\nRestart the app for changes to take effect.');
-                                    }
-                                  } catch (e) {
-                                    alert('Failed to change folder: ' + (e.message || e));
-                                  }
-                                }
-                              }}
-                              style={{
-                                border: 'none', borderRadius: '6px', padding: '6px 14px',
-                                fontSize: '0.65rem', fontWeight: '700', cursor: expressServerRunning ? 'not-allowed' : 'pointer',
-                                background: expressServerRunning ? '#CBD5E1' : '#2563EB',
-                                color: '#fff', width: '100%'
-                              }}
-                            >
-                              {expressServerRunning ? '⚠️ Stop server first to change path' : '📂 Change Database Folder'}
-                            </button>
-                          </div>
-
-                          {/* Auto-start on Windows startup toggle */}
-                          {window.electronAPI && window.electronAPI.setAutoStart && (
-                            <div style={{
-                              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                              padding: '10px 14px', marginBottom: '15px',
-                              background: autoStartServer ? '#F0FDF4' : '#F8FAFC',
-                              borderRadius: '10px',
-                              border: `1px solid ${autoStartServer ? '#BBF7D0' : '#E2E8F0'}`
-                            }}>
-                              <div>
-                                <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#1E293B' }}>🔄 Start on Windows Startup</div>
-                                <div style={{ fontSize: '0.6rem', color: '#94A3B8' }}>Auto-launch DYR and start the server when PC boots</div>
-                              </div>
-                              <div
-                                onClick={async () => {
-                                  const newVal = !autoStartServer;
-                                  setAutoStartServer(newVal);
-                                  try {
-                                    await window.electronAPI.setAutoStart(newVal);
-                                  } catch (e) { console.error('Auto-start toggle failed:', e); setAutoStartServer(!newVal); }
-                                }}
-                                style={{
-                                  width: '44px', height: '24px', borderRadius: '12px',
-                                  background: autoStartServer ? '#10B981' : '#CBD5E1',
-                                  position: 'relative', cursor: 'pointer',
-                                  transition: 'background 0.2s ease', flexShrink: 0
-                                }}
-                              >
-                                <div style={{
-                                  width: '20px', height: '20px', borderRadius: '50%',
-                                  background: '#fff', position: 'absolute', top: '2px',
-                                  left: autoStartServer ? '22px' : '2px',
-                                  transition: 'left 0.2s ease',
-                                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
-                                }} />
-                              </div>
-                            </div>
-                          )}
-
-                          {expressServerRunning && (
-                            <div style={{ background: '#ffffff', borderRadius: '10px', padding: '15px', border: '1px solid rgba(16,185,129,0.3)' }}>
-                              <p style={{ margin: '0 0 10px', fontSize: '0.8rem', color: '#10B981', fontWeight: '700' }}>📡 Server is live! Clients connect to:</p>
-                              <div style={{ background: '#1E293B', borderRadius: '8px', padding: '12px', marginBottom: '12px' }}>
-                                <code style={{ color: '#10B981', fontSize: '1.1rem', fontWeight: 'bold', display: 'block', textAlign: 'center', letterSpacing: '0.5px' }}>
-                                  http://{expressServerIP}:3001
-                                </code>
-                              </div>
-
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
-                                <div style={{ background: '#FEF3C7', borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
-                                  <div style={{ fontSize: '1.2rem', fontWeight: '800', color: '#92400E' }}>{expressServerStats?.summary?.pending || 0}</div>
-                                  <div style={{ fontSize: '0.6rem', color: '#92400E' }}>Pending</div>
-                                </div>
-                                <div style={{ background: '#F0FDF4', borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
-                                  <div style={{ fontSize: '1.2rem', fontWeight: '800', color: '#059669' }}>{expressServerStats?.summary?.approved || 0}</div>
-                                  <div style={{ fontSize: '0.6rem', color: '#64748B' }}>Approved</div>
-                                </div>
-                                <div style={{ background: '#FEF2F2', borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
-                                  <div style={{ fontSize: '1.2rem', fontWeight: '800', color: '#DC2626' }}>{expressServerStats?.summary?.blocked || 0}</div>
-                                  <div style={{ fontSize: '0.6rem', color: '#64748B' }}>Blocked</div>
-                                </div>
-                              </div>
-
-                              {/* PENDING CLIENTS — need approval */}
-                              {expressServerStats?.clients?.filter(c => c.status === 'pending').length > 0 && (
-                                <div style={{ marginBottom: '12px', background: '#FFFBEB', borderRadius: '10px', padding: '12px', border: '1px solid #FCD34D' }}>
-                                  <p style={{ margin: '0 0 8px', fontSize: '0.75rem', fontWeight: '700', color: '#92400E' }}>🔔 Pending Connections:</p>
-                                  {expressServerStats.clients.filter(c => c.status === 'pending').map((client, idx) => (
-                                    <div key={`p-${idx}`} style={{
-                                      display: 'flex', alignItems: 'center', gap: '8px',
-                                      padding: '10px', marginBottom: '6px',
-                                      background: '#FFF', borderRadius: '8px', border: '1px solid #FDE68A'
-                                    }}>
-                                      <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#F59E0B', animation: 'pulse 1.5s infinite', flexShrink: 0 }} />
-                                      <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#1E293B' }}>{client.name}</div>
-                                        <div style={{ fontSize: '0.6rem', color: '#94A3B8' }}>{client.ip}</div>
-                                      </div>
-                                      <button onClick={async () => {
-                                        try {
-                                          await fetch('http://localhost:3001/api/admin/approve', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ip: client.ip}) });
-                                          const r = await fetch('http://localhost:3001/api/health'); if(r.ok) setExpressServerStats(await r.json());
-                                        } catch(e){}
-                                      }} style={{ border:'none', borderRadius:'6px', padding:'5px 10px', fontSize:'0.65rem', fontWeight:'700', cursor:'pointer', background:'#10B981', color:'#fff' }}>
-                                        ✓ Accept
-                                      </button>
-                                      <button onClick={async () => {
-                                        try {
-                                          await fetch('http://localhost:3001/api/admin/block', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ip: client.ip}) });
-                                          const r = await fetch('http://localhost:3001/api/health'); if(r.ok) setExpressServerStats(await r.json());
-                                        } catch(e){}
-                                      }} style={{ border:'none', borderRadius:'6px', padding:'5px 10px', fontSize:'0.65rem', fontWeight:'700', cursor:'pointer', background:'#DC2626', color:'#fff' }}>
-                                        ✕ Reject
-                                      </button>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-
-                              {/* APPROVED CLIENTS */}
-                              {expressServerStats?.clients?.filter(c => c.status === 'approved').length > 0 && (
-                                <div style={{ marginBottom: '12px' }}>
-                                  <p style={{ margin: '0 0 8px', fontSize: '0.75rem', fontWeight: '700', color: '#059669' }}>✅ Approved Devices:</p>
-                                  {expressServerStats.clients.filter(c => c.status === 'approved').map((client, idx) => (
-                                    <div key={`a-${idx}`} style={{
-                                      display: 'flex', alignItems: 'center', gap: '8px',
-                                      padding: '10px', marginBottom: '6px',
-                                      background: '#F0FDF4', borderRadius: '8px', border: '1px solid #BBF7D0'
-                                    }}>
-                                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10B981', boxShadow: '0 0 6px rgba(16,185,129,0.4)', flexShrink: 0 }} />
-                                      <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#1E293B' }}>{client.name}</div>
-                                        <div style={{ fontSize: '0.6rem', color: '#94A3B8' }}>{client.ip} • {client.requests} req • {client.lastSeen ? new Date(client.lastSeen).toLocaleTimeString() : '—'}</div>
-                                      </div>
-                                      <button onClick={async () => {
-                                        try {
-                                          await fetch('http://localhost:3001/api/admin/block', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ip: client.ip}) });
-                                          const r = await fetch('http://localhost:3001/api/health'); if(r.ok) setExpressServerStats(await r.json());
-                                        } catch(e){}
-                                      }} style={{ border:'none', borderRadius:'6px', padding:'5px 10px', fontSize:'0.65rem', fontWeight:'700', cursor:'pointer', background:'#DC2626', color:'#fff', flexShrink: 0 }}>
-                                        ✕ Block
-                                      </button>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-
-                              {/* BLOCKED CLIENTS */}
-                              {expressServerStats?.clients?.filter(c => c.status === 'blocked').length > 0 && (
-                                <div style={{ marginBottom: '12px' }}>
-                                  <p style={{ margin: '0 0 8px', fontSize: '0.75rem', fontWeight: '700', color: '#DC2626' }}>⛔ Blocked Devices:</p>
-                                  {expressServerStats.clients.filter(c => c.status === 'blocked').map((client, idx) => (
-                                    <div key={`b-${idx}`} style={{
-                                      display: 'flex', alignItems: 'center', gap: '8px',
-                                      padding: '10px', marginBottom: '6px',
-                                      background: '#FEF2F2', borderRadius: '8px', border: '1px solid #FECACA', opacity: 0.7
-                                    }}>
-                                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#DC2626', flexShrink: 0 }} />
-                                      <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#DC2626' }}>{client.name}</div>
-                                        <div style={{ fontSize: '0.6rem', color: '#94A3B8' }}>{client.ip}</div>
-                                      </div>
-                                      <button onClick={async () => {
-                                        try {
-                                          await fetch('http://localhost:3001/api/admin/unblock', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ip: client.ip}) });
-                                          const r = await fetch('http://localhost:3001/api/health'); if(r.ok) setExpressServerStats(await r.json());
-                                        } catch(e){}
-                                      }} style={{ border:'none', borderRadius:'6px', padding:'5px 10px', fontSize:'0.65rem', fontWeight:'700', cursor:'pointer', background:'#10B981', color:'#fff', flexShrink: 0 }}>
-                                        ✓ Enable
-                                      </button>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-
-                              {(!expressServerStats?.clients || expressServerStats.clients.length === 0) && (
-                                <div style={{ textAlign: 'center', padding: '15px', background: '#F8FAFC', borderRadius: '8px', marginBottom: '12px' }}>
-                                  <p style={{ margin: 0, fontSize: '0.75rem', color: '#94A3B8' }}>No clients connected yet</p>
-                                </div>
-                              )}
-
-                              <div style={{ fontSize: '0.7rem', color: '#64748B', lineHeight: '1.6', background: '#F8FAFC', borderRadius: '8px', padding: '10px' }}>
-                                <p style={{ margin: '0 0 5px', fontWeight: '700', color: '#1E293B' }}>On the client PC:</p>
-                                <p style={{ margin: '0 0 3px' }}>1. Open DYR → Settings → Database Connection</p>
-                                <p style={{ margin: '0 0 3px' }}>2. Set mode to <strong>"Network (Custom API)"</strong></p>
-                                <p style={{ margin: '0 0 3px' }}>3. Enter: <code style={{ color: '#10B981', background: '#1E293B', padding: '1px 6px', borderRadius: '3px' }}>http://{expressServerIP}:3001</code></p>
-                                <p style={{ margin: '8px 0 0', color: '#2563EB', fontWeight: '600' }}>📺 You are in Monitor Mode — data auto-refreshes every 15s</p>
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )}
-
-                      <IonButton expand="block" style={{ '--color': '#FFFFFF', '--background': '#2563EB', color: '#FFFFFF', '--border-radius': '12px', height: '50px', fontWeight: 'bold' }} onClick={handleSaveSetup}>
-                        <IonIcon icon={shieldCheckmarkOutline} slot="start" />
-                        {t('settings.saveConnectionSettings')}
-                      </IonButton>
-                    </div>
-                    <div style={{ background: 'var(--app-bg-card)', borderRadius: '16px', padding: '20px', marginBottom: '20px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-                        <IonIcon icon={trashOutline} style={{ fontSize: '24px', color: '#2563EB' }} />
-                        <h3 style={{ margin: 0, color: '#1E293B' }}>{t('settings.dataManagement')}</h3>
-                      </div>
-
-                      {dbConfig.type === 'network' && (
-                        <div style={{ padding: '12px', background: '#FEF3C7', borderRadius: '10px', marginBottom: '15px', border: '1px solid #FCD34D' }}>
-                          <p style={{ margin: 0, fontSize: '0.75rem', color: '#92400E', fontWeight: '600' }}>
-                            ⚠️ Backups are only available on the host PC. You are connected as a client.
-                          </p>
-                        </div>
-                      )}
-
-                      <IonButton
-                        expand="block"
-                        fill="outline"
-                        color="medium"
-                        disabled={dbConfig.type === 'network'}
-                        style={{ marginBottom: '10px', '--border-radius': '12px' }}
-                        onClick={() => {
-                          // Export all data as JSON
-                          const data = {
-                            buildings,
-                            customers,
-                            offers,
-                            contracts,
-                            installments,
-                            sales,
-                            terminatedContracts,
-                            terminatedInstallments,
-                            exportDate: new Date().toISOString()
-                          };
-                          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                          const fname = `dyr-backup-${new Date().toISOString().split('T')[0]}.json`;
-
-                          if (isNativeMobile) {
-                            exportFileMobile(blob, fname, 'application/json');
-                          } else {
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = fname;
-                            a.click();
-                            URL.revokeObjectURL(url);
-                          }
-                        }}
-                      >
-                        <IonIcon icon={downloadOutline} slot="start" />
-                        {t('settings.exportData')}
-                      </IonButton>
-
-                      <IonButton
-                        expand="block"
-                        fill="outline"
-                        style={{ '--color': '#FFFFFF', '--background': '#DC2626', color: '#FFFFFF', '--border-radius': '12px' }}
-                        onClick={() => {
-                          if (window.confirm(t('alert.clearCacheConfirm'))) {
-                            localStorage.removeItem('dyr_cache');
-                            refreshData();
-                          }
-                        }}
-                      >
-                        <IonIcon icon={trashOutline} slot="start" />
-                        {t('settings.clearCache')}
-                      </IonButton>
-                    </div>
-                  </div>
-
-                  {/* Security Section */}
-                  <div style={{ background: 'var(--app-bg-card)', borderRadius: '16px', padding: '20px', marginBottom: '20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-                      <IonIcon icon={shieldCheckmarkOutline} style={{ fontSize: '24px', color: '#2563EB' }} />
-                      <h3 style={{ margin: 0, color: '#1E293B' }}>{t('settings.security')}</h3>
-                    </div>
-
-                    <IonButton
-                      expand="block"
-                      fill="outline"
-                      color="medium"
-                      style={{ '--border-radius': '12px' }}
-                      onClick={() => setShowChangePasswordAlert(true)}
-                    >
-                      <IonIcon icon={shieldCheckmarkOutline} slot="start" />
-                      {t('settings.changePassword')}
-                    </IonButton>
-                  </div>
-
-
-
-
-                  <div style={{ maxWidth: '600px', margin: '0 auto' }}>
-
-                    {/* Auto-Update Section (Windows & Android) */}
-                    {(isDesktop || isNativeMobile) && (
-                      <div style={{ background: 'var(--app-bg-card)', borderRadius: '16px', padding: '20px', marginBottom: '20px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-                          <IonIcon icon={cloudDownload} style={{ fontSize: '24px', color: '#2563EB' }} />
-                          <h3 style={{ margin: 0, color: '#1E293B' }}>{t('settings.updates')}</h3>
-                        </div>
-
-                        <div style={{ textAlign: 'center' }}>
-                          {updateStatus === 'idle' || updateStatus === 'not-available' || updateStatus === 'error' ? (
-                            <IonButton expand="block" fill="outline" onClick={handleCheckForUpdate} style={{ '--border-radius': '12px' }}>
-                              {t('settings.checkForUpdates')}
-                            </IonButton>
-                          ) : updateStatus === 'checking' ? (
-                            <div style={{ padding: '10px', color: '#64748B'    }}>{t('settings.checkingForUpdates')}</div>
-                          ) : updateStatus === 'available' ? (
-                            <div>
-                              <p style={{ color: '#2563EB', marginBottom: '10px' }}>
-                                {t('settings.updateAvailable', { version: updateInfo?.version })}
-                              </p>
-                              <IonButton expand="block" style={{ '--color': '#FFFFFF', '--background': '#2563EB', color: '#FFFFFF', '--border-radius': '12px' }} onClick={handleDownloadUpdate}>
-                                {t('settings.downloadAndInstall')}
-                              </IonButton>
-                            </div>
-                          ) : updateStatus === 'downloading' ? (
-                            <div>
-                              <p style={{ color: '#2563EB', marginBottom: '5px' }}>{t('settings.downloading', { percent: Math.round(updateProgress.percent) })}</p>
-                              <div style={{ background: '#ffffff', borderRadius: '4px', height: '8px', width: '100%', marginBottom: '5px' }}>
-                                <div style={{ height: '100%', background: '#2563EB', width: `${updateProgress.percent}%`, transition: 'width 0.2s' }} />
-                              </div>
-                              <small style={{ color: '#64748B' }}>
-                                {(updateProgress.bytesPerSecond / 1024 / 1024).toFixed(2)} MB/s
-                              </small>
-                            </div>
-                          ) : updateStatus === 'downloaded' ? (
-                            <div>
-                              <p style={{ color: '#2563EB', marginBottom: '10px' }}>{t('settings.updateReady')}</p>
-                              <IonButton expand="block" style={{ '--color': '#FFFFFF', '--background': '#475569', color: '#FFFFFF', '--border-radius': '12px' }} onClick={handleQuitAndInstall}>
-                                {t('settings.restartAndInstall')}
-                              </IonButton>
-                            </div>
-                          ) : null}
-
-                          {updateStatus === 'not-available' && (
-                            <p style={{ color: '#64748B', marginTop: '10px', fontSize: '0.9rem' }}>{t('settings.latestVersion')}</p>
-                          )}
-
-                          {updateStatus === 'error' && (
-                            <p style={{ color: '#DC2626', marginTop: '10px', fontSize: '0.9rem' }}>
-                              {t('common.error')}: {updateError}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    <IonAlert
-                      isOpen={showChangePasswordAlert}
-                      onDidDismiss={() => setShowChangePasswordAlert(false)}
-                      header={t('settings.changePassword')}
-                      inputs={[
-                        {
-                          name: 'password',
-                          type: 'password',
-                          placeholder: t('settings.newPasswordPlaceholder'),
-                          attributes: {
-                            minLength: 6
-                          }
-                        }
-                      ]}
-                      buttons={[
-                        {
-                          text: t('common.cancel'),
-                          role: 'cancel',
-                          handler: () => { }
-                        },
-                        {
-                          text: t('common.save'),
-                          handler: (data) => {
-                            if (data.password && data.password.length >= 6) {
-                              const currentSecurity = getAppSecurity();
-                              const updatedSecurity = { ...currentSecurity, adminPassword: data.password };
-                              setAppSecurity(updatedSecurity);
-                              setSecurityConfig(updatedSecurity);
-                              alert(t('settings.saved'));
-                              return true;
-                            } else {
-                              alert(t('alert.passwordTooShort'));
-                              return false; // Keep alert open
-                            }
-                          }
-                        }
-                      ]}
-                    />
-
-                    {/* About Section */}
-                    <div style={{ background: 'var(--app-bg-card)', borderRadius: '16px', padding: '20px' }}>
-
-                      {/* ... existing about content ... */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-                        <IonIcon icon={informationCircleOutline} style={{ fontSize: '24px', color: '#2563EB' }} />
-                        <h3 style={{ margin: 0, color: '#1E293B' }}>{t('settings.about')}</h3>
-                      </div>
-
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #333' }}>
-                        <span style={{ color: '#64748B' }}>{t('settings.version')}</span>
-                        <span style={{ color: '#1E293B', fontWeight: 'bold' }}>{APP_VERSION}</span>
-                      </div>
-
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #333' }}>
-                        <span style={{ color: '#64748B' }}>{t('settings.developer')}</span>
-                        <span style={{ color: '#1E293B', fontWeight: 'bold' }}>Mohamed Hassan</span>
-                      </div>
-
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #333' }}>
-                        <span style={{ color: '#64748B' }}>{t('settings.contact')}</span>
-                        <span style={{ color: '#1E293B' }}>+20 100 851 5995</span>
-                      </div>
-
-                      <IonButton
-                        expand="block"
-                        style={{ '--color': '#FFFFFF', '--background': '#2563EB', color: '#FFFFFF', marginTop: '15px', '--border-radius': '12px' }}
-                        onClick={() => {
-                          window.open('https://wa.me/201008515995', '_system');
-                        }}
-                      >
-                        <IonIcon icon={chatbubbles} slot="start" />
-                        {t('settings.whatsapp')}
-                      </IonButton>
-
-                      {/* Sign Out Button */}
-                      <IonButton
-                        expand="block"
-                        style={{ '--color': '#FFFFFF', '--background': '#DC2626', color: '#FFFFFF', marginTop: '30px', '--border-radius': '12px' }}
-                        onClick={async () => {
-                          if (window.confirm(t('alert.signOutConfirm'))) {
-                            if (loggedInUser) {
-                              try {
-                                await updateUserSession(loggedInUser.id, null);
-                                await clearSessionUserInfo(sessionMac);
-                              } catch (e) { console.error("Sign out session update failed", e); }
-                            }
-                            localStorage.removeItem('is_device_trusted');
-                            localStorage.removeItem('trusted_user_name');
-                            localStorage.removeItem('trusted_user_cred');
-                            localStorage.removeItem('trusted_user_password');
-                            setLoggedInUser(null);
-                            setAccessExpiresAt(null);
-                            setShowSettingsModal(false);
-                          }
-                        }}
-                      >
-                        <IonIcon icon={closeCircleOutline} slot="start" />
-                        Sign Out / Untrust Device
-                      </IonButton>
-
-                      {/* Admin Monitor Button - Only for DYR */}
-                      {(['dyr', 'chrono'].includes((loggedInUser?.name || '').toLowerCase())) && (
-                        <IonButton
-                          expand="block"
-                          fill="outline"
-                          color="medium"
-                          style={{ marginTop: '15px', '--border-radius': '12px', opacity: 0.7 }}
-                          onClick={() => {
-                            setShowSettingsModal(false);
-                            setShowAdminModal(true);
-                          }}
-                        >
-                          <IonIcon icon={peopleOutline} slot="start" />
-                          Owner's Monitor
-                        </IonButton>
-                      )}
-
 
                     </div>
                   </div>
                 </div>
-              </IonContent>
+              </div>
             </IonModal>
 
             <AdminSessionsModal
@@ -15684,68 +17713,169 @@ const App = () => {
               </IonContent>
             </IonModal>
 
-            {/* Spacer to prevent fixed bottom nav from overlapping content */}
-            {loggedInUser && <div style={{ height: '100px', flexShrink: 0 }} />}
-          </IonContent >
-          {loggedInUser && (
-            <div className="pro-bottom-nav">
-              <div className={`nav-item ${currentView === 'home' ? 'active' : ''}`} onClick={() => navigateToView('home')}>
-                <IonIcon icon={homeOutline} />
-                <span>{t('common.dashboard')}</span>
+            {/* Spacer — only needed when NO drawer (desktop) */}
+            {loggedInUser && isDesktop && <div style={{ height: '20px', flexShrink: 0 }} />}
+          </IonContent>
+
+          {/* ─── SIDE NAVIGATION DRAWER (Mobile) ─── */}
+          {loggedInUser && !isDesktop && (
+            <>
+              {/* Dark overlay */}
+              <div
+                className={`dyr-drawer-overlay${drawerOpen ? ' open' : ''}`}
+                onClick={() => setDrawerOpen(false)}
+              />
+              {/* Drawer panel — swipe-to-close + RTL support */}
+              <div
+                className={`dyr-drawer${drawerOpen ? ' open' : ''}${isRTL() ? ' rtl' : ''}`}
+                onTouchStart={(e) => { window.__drawerTouchX = e.touches[0].clientX; }}
+                onTouchEnd={(e) => {
+                  const dx = e.changedTouches[0].clientX - (window.__drawerTouchX || 0);
+                  // LTR: swipe left (negative dx) closes; RTL: swipe right (positive dx) closes
+                  if (isRTL() ? dx > 60 : dx < -60) setDrawerOpen(false);
+                }}
+              >
+                {/* Drawer Header: Logo + User */}
+                <div className="dyr-drawer-header">
+                  <div className="dyr-drawer-logo">
+                    <span className="dyr-drawer-logo-text">DYR</span>
+                    <span className="dyr-drawer-logo-sub">Real Estate</span>
+                  </div>
+                  <button className="dyr-drawer-close" onClick={() => setDrawerOpen(false)} aria-label="Close menu">
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                      <path d="M1 1l16 16M17 1L1 17" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
+                    </svg>
+                  </button>
+                </div>
+
+                {/* User info */}
+                <div className="dyr-drawer-user">
+                  <div className="dyr-drawer-avatar">
+                    {activeLogo
+                      ? <img src={activeLogo} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '10px' }} />
+                      : <span>{(loggedInUser.name || 'DYR').substring(0, 2).toUpperCase()}</span>
+                    }
+                  </div>
+                  <div>
+                    <div className="dyr-drawer-username">{loggedInUser.name}</div>
+                    <span className="dyr-drawer-rank">{loggedInUser.rank?.toUpperCase()}</span>
+                  </div>
+                </div>
+
+                <div className="dyr-drawer-divider" />
+
+                {/* ── Nav items ── */}
+                <nav className="dyr-drawer-nav">
+
+                  {/* HOME */}
+                  <div
+                    className={`dyr-nav-item${currentView === 'home' ? ' active' : ''}`}
+                    onClick={() => { navigateToView('home'); setDrawerOpen(false); }}
+                  >
+                    <IonIcon icon={homeOutline} />
+                    <span>{t('common.dashboard')}</span>
+                  </div>
+
+                  {/* GROUP: OPERATIONS */}
+                  <div className="dyr-nav-group-label">OPERATIONS</div>
+                  <div
+                    className={`dyr-nav-item${currentView === 'buildings' ? ' active' : ''}`}
+                    onClick={() => { navigateToView('buildings'); setDrawerOpen(false); }}
+                  >
+                    <IonIcon icon={businessOutline} />
+                    <span>{t('home.buildings')}</span>
+                  </div>
+                  <div
+                    className={`dyr-nav-item${currentView === 'customers' ? ' active' : ''}`}
+                    onClick={() => { navigateToView('customers'); setDrawerOpen(false); }}
+                  >
+                    <IonIcon icon={peopleOutline} />
+                    <span>{t('home.customers')}</span>
+                  </div>
+                  <div
+                    className={`dyr-nav-item${currentView === 'offers' ? ' active' : ''}`}
+                    onClick={() => { navigateToView('offers'); setDrawerOpen(false); }}
+                  >
+                    <IonIcon icon={documentTextOutline} />
+                    <span>{t('home.offers')}</span>
+                  </div>
+                  <div
+                    className={`dyr-nav-item${currentView === 'contracts' ? ' active' : ''}`}
+                    onClick={() => { navigateToView('contracts'); setDrawerOpen(false); }}
+                  >
+                    <IonIcon icon={shieldCheckmarkOutline} />
+                    <span>{t('home.contracts')}</span>
+                  </div>
+
+                  {/* GROUP: FINANCIAL */}
+                  <div className="dyr-nav-group-label">FINANCIAL</div>
+                  <div
+                    className={`dyr-nav-item${currentView === 'installments' ? ' active' : ''}`}
+                    onClick={() => { navigateToView('installments'); setDrawerOpen(false); }}
+                  >
+                    <IonIcon icon={calendarOutline} />
+                    <span>{t('common.schedule')}</span>
+                  </div>
+                  {/* Cheques — Pro+ only */}
+                  {(loggedInUser?.role === 'owner' || loggedInUser?.planLimits?.cheques) && (
+                  <div
+                    className={`dyr-nav-item${currentView === 'cheques' ? ' active' : ''}`}
+                    onClick={() => { navigateToView('cheques'); setDrawerOpen(false); }}
+                  >
+                    <IonIcon icon={printOutline} />
+                    <span>{t('home.cheques')}</span>
+                  </div>
+                  )}
+                  <div
+                    className={`dyr-nav-item${currentView === 'wallets' ? ' active' : ''}`}
+                    onClick={() => { navigateToView('wallets'); setDrawerOpen(false); }}
+                  >
+                    <IonIcon icon={walletOutline} />
+                    <span>{t('home.wallets')}</span>
+                  </div>
+                  <div
+                    className={`dyr-nav-item${currentView === 'commissions' ? ' active' : ''}`}
+                    onClick={() => { navigateToView('commissions'); setDrawerOpen(false); }}
+                  >
+                    <IonIcon icon={statsChartOutline} />
+                    <span>{t('home.sales')}</span>
+                  </div>
+
+                  {/* GROUP: TOOLS */}
+                  <div className="dyr-nav-group-label">TOOLS</div>
+                  <div
+                    className={`dyr-nav-item${currentView === 'reminders' ? ' active' : ''}`}
+                    onClick={() => { navigateToView('reminders'); setDrawerOpen(false); }}
+                  >
+                    <IonIcon icon={logoWhatsapp} />
+                    <span>{t('home.reminders')}</span>
+                  </div>
+                  <div
+                    className={`dyr-nav-item${currentView === 'feedback' ? ' active' : ''}`}
+                    onClick={() => { navigateToView('feedback'); setDrawerOpen(false); }}
+                  >
+                    <IonIcon icon={chatbubblesOutline} />
+                    <span>{t('home.feedbacks')}</span>
+                  </div>
+                  {/* GROUP: SYSTEM */}
+                  <div className="dyr-nav-group-label">SYSTEM</div>
+                  <div
+                    className="dyr-nav-item"
+                    onClick={() => { setShowSettingsModal(true); setDrawerOpen(false); }}
+                  >
+                    <IonIcon icon={settingsOutline} />
+                    <span>{t('home.settings')}</span>
+                  </div>
+                  <div
+                    className="dyr-nav-item dyr-nav-item-danger"
+                    onClick={() => { setLoggedInUser(null); setDrawerOpen(false); }}
+                  >
+                    <IonIcon icon={logOutOutline} />
+                    <span>{t('common.logout') || 'Logout'}</span>
+                  </div>
+                </nav>
               </div>
-              <div className={`nav-item ${currentView === 'buildings' ? 'active' : ''}`} onClick={() => navigateToView('buildings')}>
-                <IonIcon icon={businessOutline} />
-                <span>{t('home.buildings')}</span>
-              </div>
-              <div className={`nav-item ${currentView === 'customers' ? 'active' : ''}`} onClick={() => navigateToView('customers')}>
-                <IonIcon icon={peopleOutline} />
-                <span>{t('home.customers')}</span>
-              </div>
-              <div className={`nav-item ${currentView === 'offers' ? 'active' : ''}`} onClick={() => navigateToView('offers')}>
-                <IonIcon icon={documentTextOutline} />
-                <span>{t('home.offers')}</span>
-              </div>
-              <div className={`nav-item ${currentView === 'contracts' ? 'active' : ''}`} onClick={() => navigateToView('contracts')}>
-                <IonIcon icon={shieldCheckmarkOutline} />
-                <span>{t('home.contracts')}</span>
-              </div>
-              <div className={`nav-item ${currentView === 'installments' ? 'active' : ''}`} onClick={() => navigateToView('installments')}>
-                <IonIcon icon={calendarOutline} />
-                <span>{t('common.schedule')}</span>
-              </div>
-              <div className={`nav-item ${currentView === 'cheques' ? 'active' : ''}`} onClick={() => navigateToView('cheques')}>
-                <IonIcon icon={printOutline} />
-                <span>{t('home.cheques')}</span>
-              </div>
-              <div className={`nav-item ${currentView === 'wallets' ? 'active' : ''}`} onClick={() => navigateToView('wallets')}>
-                <IonIcon icon={walletOutline} />
-                <span>{t('home.wallets')}</span>
-              </div>
-              <div className={`nav-item ${currentView === 'feedback' ? 'active' : ''}`} onClick={() => navigateToView('feedback')}>
-                <IonIcon icon={chatbubblesOutline} />
-                <span>{t('home.feedbacks')}</span>
-              </div>
-              <div className={`nav-item ${currentView === 'reminders' ? 'active' : ''}`} onClick={() => navigateToView('reminders')}>
-                <IonIcon icon={logoWhatsapp} />
-                <span>{t('home.reminders')}</span>
-              </div>
-              <div className={`nav-item ${currentView === 'terminated' ? 'active' : ''}`} onClick={() => navigateToView('terminated')}>
-                <IonIcon icon={trashOutline} />
-                <span>{t('home.terminated')}</span>
-              </div>
-              <div className={`nav-item ${currentView === 'sales' ? 'active' : ''}`} onClick={() => navigateToView('sales')}>
-                <IonIcon icon={statsChartOutline} />
-                <span>{t('home.sales')}</span>
-              </div>
-              <div className={`nav-item ${currentView === 'commissions' ? 'active' : ''}`} onClick={() => navigateToView('commissions')}>
-                <IonIcon icon={walletOutline} />
-                <span>Commissions</span>
-              </div>
-              <div className="nav-item" onClick={() => setShowSettingsModal(true)}>
-                <IonIcon icon={settingsOutline} />
-                <span>{t('home.settings')}</span>
-              </div>
-            </div>
+            </>
           )}
 
 
@@ -15851,7 +17981,506 @@ const App = () => {
           </IonModal>
 
         </IonApp >
+
+        {/* ══ IMPORT MODALS (top-level so position:fixed works in Electron/Ionic) ══ */}
+
+        {/* Units Import Modal */}
+        {showUnitImportModal && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 99999,
+            background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
+          }} onClick={(e) => { if (e.target === e.currentTarget) setShowUnitImportModal(false); }}>
+            <div style={{
+              background: 'var(--app-bg-card, #1E293B)', borderRadius: '22px',
+              padding: '32px', width: '100%', maxWidth: '520px',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.4)',
+              border: appSettings.theme === 'dark' ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.08)',
+              animation: 'fadeInUp 0.2s ease'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{
+                    width: '44px', height: '44px', borderRadius: '14px',
+                    background: 'linear-gradient(135deg,rgba(37,99,235,0.2),rgba(37,99,235,0.08))',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem'
+                  }}>🏢</div>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '800', color: 'var(--app-text)' }}>Import Units from Excel</h2>
+                    <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748B' }}>Into: <strong>{activeBuilding?.name}</strong></p>
+                  </div>
+                </div>
+                <button onClick={() => setShowUnitImportModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: '#94A3B8' }}>✕</button>
+              </div>
+              {/* Step 1 */}
+              <div style={{ background: appSettings.theme === 'dark' ? 'rgba(5,150,105,0.1)' : '#F0FDF4', borderRadius: '14px', padding: '18px', marginBottom: '16px', border: '1px solid rgba(5,150,105,0.25)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                  <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#059669', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: '800' }}>1</span>
+                  <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--app-text)' }}>Download the Excel Template</span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
+                  {['Unit ID','Floor','Area','View','Base Price','Finished Price','Share','Payment Plan','State'].map((col, i) => (
+                    <span key={col} style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '0.65rem', fontWeight: '700', background: i === 0 ? '#059669' : '#334155', color: i === 0 ? '#fff' : '#94A3B8', border: 'none' }}>{col}</span>
+                  ))}
+                </div>
+                <button onClick={() => downloadUnitsTemplate()} style={{ width: '100%', padding: '11px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg,#059669,#047857)', color: '#fff', fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer' }}>
+                  ⬇ Download Template (.xlsx)
+                </button>
+              </div>
+              {/* Step 2 */}
+              <div style={{ background: appSettings.theme === 'dark' ? 'rgba(37,99,235,0.1)' : '#EFF6FF', borderRadius: '14px', padding: '18px', border: '1px solid rgba(37,99,235,0.25)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                  <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#2563EB', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: '800' }}>2</span>
+                  <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--app-text)' }}>Upload Your Filled File</span>
+                </div>
+                <p style={{ margin: '0 0 12px', fontSize: '0.72rem', color: '#64748B' }}>Units will be <strong>added</strong> to <strong>{activeBuilding?.name}</strong>. Existing units are not affected.</p>
+                <button onClick={() => { setShowUnitImportModal(false); setTimeout(() => fileInputRef.current?.click(), 100); }} style={{ width: '100%', padding: '11px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg,#2563EB,#1d4ed8)', color: '#fff', fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer' }}>
+                  ⬆ Choose Excel File to Import
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Installments Import Modal */}
+        {showInstallmentImportModal && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 99999,
+            background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
+          }} onClick={(e) => { if (e.target === e.currentTarget) setShowInstallmentImportModal(false); }}>
+            <div style={{
+              background: 'var(--app-bg-card, #1E293B)', borderRadius: '22px',
+              padding: '32px', width: '100%', maxWidth: '540px',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.4)',
+              border: appSettings.theme === 'dark' ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.08)',
+              animation: 'fadeInUp 0.2s ease'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: '44px', height: '44px', borderRadius: '14px', background: 'linear-gradient(135deg,rgba(5,150,105,0.2),rgba(5,150,105,0.08))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>📥</div>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '800', color: 'var(--app-text)' }}>Import Installments from Excel</h2>
+                    <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748B' }}>Download the template, fill it, then upload here</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowInstallmentImportModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: '#94A3B8' }}>✕</button>
+              </div>
+              {/* Step 1 */}
+              <div style={{ background: appSettings.theme === 'dark' ? 'rgba(5,150,105,0.1)' : '#F0FDF4', borderRadius: '14px', padding: '18px', marginBottom: '16px', border: '1px solid rgba(5,150,105,0.25)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                  <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#059669', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: '800' }}>1</span>
+                  <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--app-text)' }}>Download the Excel Template</span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
+                  {['UnitID','Total','Date','Type','State','Method','Paid Amount','Cheque No','Bank','Cheque Status'].map((col, i) => (
+                    <span key={col} style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '0.65rem', fontWeight: '700', background: i < 3 ? '#059669' : '#334155', color: i < 3 ? '#fff' : '#94A3B8' }}>{col}</span>
+                  ))}
+                </div>
+                <button onClick={() => downloadInstallmentsTemplate()} style={{ width: '100%', padding: '11px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg,#059669,#047857)', color: '#fff', fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer' }}>
+                  ⬇ Download Template (.xlsx)
+                </button>
+              </div>
+              {/* Step 2 */}
+              <div style={{ background: appSettings.theme === 'dark' ? 'rgba(37,99,235,0.1)' : '#EFF6FF', borderRadius: '14px', padding: '18px', border: '1px solid rgba(37,99,235,0.25)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                  <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#2563EB', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: '800' }}>2</span>
+                  <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--app-text)' }}>Upload Your Filled File</span>
+                </div>
+                <p style={{ margin: '0 0 12px', fontSize: '0.72rem', color: '#64748B' }}>New installments will be <strong>added</strong> to the existing list. Existing records are not affected.</p>
+                <button onClick={() => { setShowInstallmentImportModal(false); setTimeout(() => installmentFileInputRef.current?.click(), 100); }} style={{ width: '100%', padding: '11px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg,#2563EB,#1d4ed8)', color: '#fff', fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer' }}>
+                  ⬆ Choose Excel File to Import
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Customers Import Modal */}
+        {showCustomerImportModal && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 99999,
+            background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
+          }} onClick={(e) => { if (e.target === e.currentTarget) setShowCustomerImportModal(false); }}>
+            <div style={{
+              background: 'var(--app-bg-card, #1E293B)', borderRadius: '22px',
+              padding: '32px', width: '100%', maxWidth: '520px',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.4)',
+              border: appSettings.theme === 'dark' ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.08)',
+              animation: 'fadeInUp 0.2s ease'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: '44px', height: '44px', borderRadius: '14px', background: 'linear-gradient(135deg,rgba(168,85,247,0.2),rgba(168,85,247,0.08))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>👥</div>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '800', color: 'var(--app-text)' }}>Import Customers from Excel</h2>
+                    <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748B' }}>Download the template, fill it, then upload here</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowCustomerImportModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: '#94A3B8' }}>✕</button>
+              </div>
+              {/* Step 1 */}
+              <div style={{ background: appSettings.theme === 'dark' ? 'rgba(5,150,105,0.1)' : '#F0FDF4', borderRadius: '14px', padding: '18px', marginBottom: '16px', border: '1px solid rgba(5,150,105,0.25)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                  <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#059669', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: '800' }}>1</span>
+                  <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--app-text)' }}>Download the Excel Template</span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
+                  {['Customer Name','Phone 1','Phone 2','Email','ID Number','ID Type','Blood Type','Direct/Indirect'].map((col, i) => (
+                    <span key={col} style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '0.65rem', fontWeight: '700', background: i === 0 ? '#059669' : '#334155', color: i === 0 ? '#fff' : '#94A3B8' }}>{col}</span>
+                  ))}
+                </div>
+                <button onClick={() => downloadCustomersTemplate()} style={{ width: '100%', padding: '11px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg,#059669,#047857)', color: '#fff', fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer' }}>
+                  ⬇ Download Template (.xlsx)
+                </button>
+              </div>
+              {/* Step 2 */}
+              <div style={{ background: appSettings.theme === 'dark' ? 'rgba(37,99,235,0.1)' : '#EFF6FF', borderRadius: '14px', padding: '18px', border: '1px solid rgba(37,99,235,0.25)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                  <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#2563EB', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: '800' }}>2</span>
+                  <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--app-text)' }}>Upload Your Filled File</span>
+                </div>
+                <p style={{ margin: '0 0 12px', fontSize: '0.72rem', color: '#64748B' }}>New customers will be <strong>added</strong> to the existing list. Existing records are not affected.</p>
+                <button onClick={() => { setShowCustomerImportModal(false); setTimeout(() => customerFileInputRef.current?.click(), 100); }} style={{ width: '100%', padding: '11px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg,#2563EB,#1d4ed8)', color: '#fff', fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer' }}>
+                  ⬆ Choose Excel File to Import
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Contracts Import Modal */}
+        {showContractImportModal && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 99999,
+            background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
+          }} onClick={(e) => { if (e.target === e.currentTarget) setShowContractImportModal(false); }}>
+            <div style={{
+              background: 'var(--app-bg-card, #1E293B)', borderRadius: '22px',
+              padding: '32px', width: '100%', maxWidth: '560px',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.4)',
+              border: appSettings.theme === 'dark' ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.08)',
+              animation: 'fadeInUp 0.2s ease'
+            }}>
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: '44px', height: '44px', borderRadius: '14px', background: 'linear-gradient(135deg,rgba(37,99,235,0.2),rgba(37,99,235,0.08))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>📄</div>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '800', color: 'var(--app-text)' }}>Import Contracts from Excel</h2>
+                    <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748B' }}>Download the template, fill it, then upload here</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowContractImportModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: '#94A3B8' }}>✕</button>
+              </div>
+              {/* Step 1 */}
+              <div style={{ background: appSettings.theme === 'dark' ? 'rgba(5,150,105,0.1)' : '#F0FDF4', borderRadius: '14px', padding: '18px', marginBottom: '16px', border: '1px solid rgba(5,150,105,0.25)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                  <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#059669', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: '800' }}>1</span>
+                  <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--app-text)' }}>Download the Excel Template</span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
+                  {['Unit ID','Customer ID','Contract Date','Offer ID','Contract ID','Guarantor ID','Sales ID','Joint ID 1','Joint ID 2','Joint ID 3','Joint ID 4','Joint ID 5'].map((col, i) => (
+                    <span key={col} style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '0.63rem', fontWeight: '700', background: i < 2 ? '#059669' : '#334155', color: i < 2 ? '#fff' : '#94A3B8' }}>{col}</span>
+                  ))}
+                </div>
+                <p style={{ margin: '0 0 12px', fontSize: '0.62rem', color: '#64748B' }}>🟢 <strong>Green</strong> = Required &nbsp;&nbsp; Grey = Optional</p>
+                <button onClick={() => downloadContractsTemplate()} style={{ width: '100%', padding: '11px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg,#059669,#047857)', color: '#fff', fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer' }}>
+                  ⬇ Download Template (.xlsx)
+                </button>
+              </div>
+              {/* Step 2 */}
+              <div style={{ background: appSettings.theme === 'dark' ? 'rgba(37,99,235,0.1)' : '#EFF6FF', borderRadius: '14px', padding: '18px', border: '1px solid rgba(37,99,235,0.25)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                  <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#2563EB', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: '800' }}>2</span>
+                  <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--app-text)' }}>Upload Your Filled File</span>
+                </div>
+                <p style={{ margin: '0 0 12px', fontSize: '0.72rem', color: '#64748B' }}>New contracts will be <strong>added</strong> to the existing list. Existing records are not affected.</p>
+                <button onClick={() => { setShowContractImportModal(false); setTimeout(() => contractFileInputRef.current?.click(), 100); }} style={{ width: '100%', padding: '11px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg,#2563EB,#1d4ed8)', color: '#fff', fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer' }}>
+                  ⬆ Choose Excel File to Import
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </ErrorBoundary >
+
+      {/* ---- Notification Center Bell ---- */}
+      {(() => {
+        const today = new Date(); today.setHours(0,0,0,0);
+        const in3days = new Date(today); in3days.setDate(in3days.getDate() + 3);
+
+        // Same logic as the overdue/reminders tab — properly exclude paid, terminated, resold
+        const computeRest = ins => Number(ins.amount || 0) - Number(ins.paidAmount || 0);
+        const isInstPaid = ins => ins.status === 'Paid' || ins.status === 'Cleared';
+        const isInstCancelled = ins => ins.status === 'terminated' || ins.status === 'resold';
+
+        const resolveCustomer = ins => {
+          const contract = contracts.find(c => c.id === ins.contractId || (ins.unitId && String(c.unitId).trim() === String(ins.unitId || '').trim()));
+          const offer = !contract ? offers.find(o => o.id === ins.offerId || (ins.unitId && String(o.unitId).trim() === String(ins.unitId || '').trim())) : null;
+          const source = contract || offer;
+          const cust = source ? customers.find(c => c.id === source.customerId) : customers.find(c => c.name === ins.customerName || String(c.id) === String(ins.customerId));
+          return cust?.name || ins.customerName || 'N/A';
+        };
+
+        const baseOverdue = installments.filter(ins => {
+          if (isInstPaid(ins) || isInstCancelled(ins)) return false;
+          // Exclude units with no active contract
+          const uid = String(ins.unitId || '').trim();
+          if (uid && terminatedUnitIds.has(uid)) return false;
+          const rest = computeRest(ins);
+          if (rest <= 0) return false;
+          const d = parseSafeDate(ins.dueDate);
+          return d && d < today;
+        });
+
+        // Apply notifFilter
+        const overdueList = baseOverdue.filter(ins => {
+          if (notifFilter === 'rejected_cheque') return ins.chequeStatus === 'Rejected' || ins.chequeStatus === 'rejected' || ins.chequeStatus === 'Bounced';
+          if (notifFilter === 'any_cheque') return ins.paymentMethod === 'Cheque' || !!ins.chequeNumber;
+          return true;
+        });
+
+        // Helper: format any dueDate (number OR string serial OR ISO string) → DD/MM/YYYY
+        const fmtSerial = (raw) => {
+          if (!raw) return '—';
+          const n = Number(raw);
+          if (!isNaN(raw) && n > 20000) return new Date((n - 25569) * 86400000).toLocaleDateString('en-GB');
+          const d = new Date(raw);
+          return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-GB');
+        };
+
+        const upcomingList = installments.filter(ins => {
+          if (isInstPaid(ins) || isInstCancelled(ins)) return false;
+          // Exclude units with no active contract
+          const uid = String(ins.unitId || '').trim();
+          if (uid && terminatedUnitIds.has(uid)) return false;
+          const rest = computeRest(ins);
+          if (rest <= 0) return false;
+          const d = parseSafeDate(ins.dueDate);
+          return d && d >= today && d <= in3days;
+        });
+
+        const totalBadge = overdueList.length + upcomingList.length;
+
+        const FILTER_LABELS = {
+          all: '🔴 All Overdue',
+          rejected_cheque: '🪃 Rejected Cheques Only',
+          any_cheque: '📑 Any Cheque Overdue',
+        };
+
+        return (
+          <>
+            {/* Bell Button */}
+            <button
+              onClick={() => { setShowNotifCenter(v => !v); setShowNotifOptions(false); }}
+              title="Notification Center"
+              style={{
+                position: 'fixed', bottom: '96px', right: '24px',
+                width: '48px', height: '48px', borderRadius: '16px',
+                background: totalBadge > 0 ? 'linear-gradient(135deg,#ef4444,#dc2626)' : 'rgba(30,41,59,0.95)',
+                border: '1px solid rgba(255,255,255,0.12)', cursor: 'pointer', zIndex: 9996,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '1.3rem', boxShadow: totalBadge > 0 ? '0 4px 20px rgba(239,68,68,0.5)' : '0 4px 16px rgba(0,0,0,0.4)',
+                transition: 'all 0.2s',
+              }}
+            >
+              🔔
+              {totalBadge > 0 && (
+                <span style={{
+                  position: 'absolute', top: '-4px', right: '-4px',
+                  background: '#fbbf24', color: '#1e293b',
+                  borderRadius: '10px', fontSize: '0.6rem', fontWeight: '900',
+                  padding: '1px 5px', minWidth: '16px', textAlign: 'center',
+                }}>{totalBadge > 99 ? '99+' : totalBadge}</span>
+              )}
+            </button>
+
+            {showNotifCenter && (
+              <>
+                <div onClick={() => { setShowNotifCenter(false); setShowNotifOptions(false); }} style={{ position: 'fixed', inset: 0, zIndex: 99994 }} />
+                <div style={{
+                  position: 'fixed', bottom: '154px', right: '24px', width: '380px',
+                  background: 'linear-gradient(160deg,#0a0f1e,#131b2e)',
+                  border: '1px solid rgba(99,102,241,0.3)', borderRadius: '20px',
+                  zIndex: 99996, overflow: 'hidden',
+                  boxShadow: '0 20px 60px rgba(0,0,0,0.7)',
+                  fontFamily: "'Inter','Segoe UI',sans-serif",
+                }}>
+                  {/* Header */}
+                  <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ color: '#fff', fontWeight: '700', fontSize: '0.9rem' }}>🔔 Notification Center</span>
+                      <span style={{ background: 'rgba(239,68,68,0.2)', color: '#f87171', borderRadius: '8px', fontSize: '0.62rem', fontWeight: '800', padding: '2px 7px' }}>{overdueList.length} overdue</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {/* Options Button */}
+                      <div style={{ position: 'relative' }}>
+                        <button
+                          onClick={e => { e.stopPropagation(); setShowNotifOptions(v => !v); }}
+                          title="Filter options"
+                          style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '4px 10px', cursor: 'pointer', color: '#94a3b8', fontSize: '0.72rem', fontWeight: '600' }}
+                        >⚙ Filter</button>
+                        {showNotifOptions && (
+                          <div style={{
+                            position: 'absolute', right: 0, top: '32px', background: '#1e293b',
+                            border: '1px solid rgba(99,102,241,0.4)', borderRadius: '12px',
+                            padding: '6px', zIndex: 99997, minWidth: '220px',
+                            boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
+                          }} onClick={e => e.stopPropagation()}>
+                            <div style={{ color: '#64748b', fontSize: '0.65rem', fontWeight: '800', letterSpacing: '0.8px', padding: '4px 8px 6px', textTransform: 'uppercase' }}>Show Overdue</div>
+                            {Object.entries(FILTER_LABELS).map(([key, label]) => (
+                              <button key={key}
+                                onClick={() => { const f = key; setNotifFilter(f); localStorage.setItem('dyr_notif_filter', f); setShowNotifOptions(false); }}
+                                style={{
+                                  display: 'block', width: '100%', textAlign: 'left',
+                                  background: notifFilter === key ? 'rgba(99,102,241,0.25)' : 'none',
+                                  border: notifFilter === key ? '1px solid rgba(99,102,241,0.5)' : '1px solid transparent',
+                                  borderRadius: '8px', padding: '8px 12px', cursor: 'pointer',
+                                  color: notifFilter === key ? '#a5b4fc' : '#cbd5e1',
+                                  fontSize: '0.78rem', fontWeight: notifFilter === key ? '700' : '500',
+                                  marginBottom: '3px',
+                                }}
+                              >{label}</button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <button onClick={() => { setShowNotifCenter(false); setShowNotifOptions(false); }} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '1rem', padding: '2px 4px' }}>✕</button>
+                    </div>
+                  </div>
+
+                  {/* Active filter display */}
+                  {notifFilter !== 'all' && (
+                    <div style={{ padding: '6px 14px', background: 'rgba(99,102,241,0.1)', borderBottom: '1px solid rgba(99,102,241,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#a5b4fc', fontSize: '0.7rem', fontWeight: '600' }}>Filter: {FILTER_LABELS[notifFilter]}</span>
+                      <button onClick={() => setNotifFilter('all')} style={{ background: 'none', border: 'none', color: '#6366f1', cursor: 'pointer', fontSize: '0.65rem', fontWeight: '700' }}>✕ Clear</button>
+                    </div>
+                  )}
+
+                  {/* Content */}
+                  <div style={{ maxHeight: '460px', overflowY: 'auto', padding: '10px 12px' }}>
+                    {overdueList.length === 0 && upcomingList.length === 0 ? (
+                      <div style={{ textAlign: 'center', color: '#64748b', padding: '30px', fontSize: '0.83rem' }}>✅ All caught up! No alerts.</div>
+                    ) : (
+                      <>
+                        {/* Overdue Section */}
+                        {overdueList.length > 0 && (
+                          <div style={{ marginBottom: '12px' }}>
+                            <div style={{ color: '#f87171', fontSize: '0.68rem', fontWeight: '800', letterSpacing: '0.8px', marginBottom: '7px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between' }}>
+                              <span>🔴 Overdue ({overdueList.length})</span>
+                            </div>
+                            {[...overdueList].sort((a,b) => {
+                              const da = parseSafeDate(a.dueDate), db = parseSafeDate(b.dueDate);
+                              return (db?.getTime()||0) - (da?.getTime()||0); // newest first
+                            }).slice(0, 50).map((ins, i) => {
+                              const rest = computeRest(ins);
+                              const custName = resolveCustomer(ins);
+                              const dDate = parseSafeDate(ins.dueDate);
+                              const daysOver = dDate ? Math.floor((today - dDate) / 86400000) : 0;
+                              const tierColor = daysOver > 60 ? '#ef4444' : daysOver > 30 ? '#f97316' : '#f59e0b';
+                              return (
+                                <div key={i} style={{
+                                  background: `${tierColor}11`,
+                                  border: `1px solid ${tierColor}33`,
+                                  borderLeft: `3px solid ${tierColor}`,
+                                  borderRadius: '10px', padding: '9px 12px', marginBottom: '6px'
+                                }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '3px' }}>
+                                    <span style={{ color: '#f1f5f9', fontWeight: '700', fontSize: '0.8rem' }}>{custName}</span>
+                                    <span style={{ color: tierColor, fontSize: '0.65rem', fontWeight: '800', background: `${tierColor}22`, padding: '1px 6px', borderRadius: '6px' }}>{daysOver}d late</span>
+                                  </div>
+                                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                    <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>🏠 <strong style={{ color: '#cbd5e1' }}>{ins.unitId}</strong></span>
+                                    <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>📅 {fmtSerial(ins.dueDate)}</span>
+                                    <span style={{ color: tierColor, fontSize: '0.7rem', fontWeight: '700' }}>💰 {formatCurrency(rest)} EGP remaining</span>
+                                  </div>
+                                  {ins.chequeStatus && <div style={{ marginTop: '3px', color: '#94a3b8', fontSize: '0.65rem' }}>🪃 Cheque: {ins.chequeStatus} {ins.chequeNumber ? `#${ins.chequeNumber}` : ''}</div>}
+                                </div>
+                              );
+                            })}
+                            {overdueList.length > 50 && <div style={{ color: '#64748b', fontSize: '0.7rem', textAlign: 'center', padding: '4px' }}>+{overdueList.length - 50} more — use the Reminders tab to see all</div>}
+                          </div>
+                        )}
+
+                        {/* Upcoming Section */}
+                        {upcomingList.length > 0 && (
+                          <div>
+                            <div style={{ color: '#fbbf24', fontSize: '0.68rem', fontWeight: '800', letterSpacing: '0.8px', marginBottom: '7px', textTransform: 'uppercase' }}>🟡 Due in 3 Days ({upcomingList.length})</div>
+                            {upcomingList.map((ins, i) => {
+                              const rest = computeRest(ins);
+                              const custName = resolveCustomer(ins);
+                              return (
+                                <div key={i} style={{ background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.25)', borderLeft: '3px solid #fbbf24', borderRadius: '10px', padding: '9px 12px', marginBottom: '6px' }}>
+                                  <div style={{ color: '#fde68a', fontWeight: '700', fontSize: '0.8rem', marginBottom: '3px' }}>{custName}</div>
+                                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                    <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>🏠 <strong style={{ color: '#cbd5e1' }}>{ins.unitId}</strong></span>
+                                    <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>📅 {fmtSerial(ins.dueDate)}</span>
+                                    <span style={{ color: '#f59e0b', fontSize: '0.7rem', fontWeight: '700' }}>💰 {formatCurrency(rest)} EGP remaining</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        );
+      })()}
+
+      {/* ---- AI Assistant Floating Button ---- */}
+      <button
+        onClick={() => {
+          // ── Plan gate: DYRai ──────────────────────────────────
+          if (!checkFeature('DYRai Assistant', planLimits.dyrai)) return;
+          setShowAIAssistant(true);
+        }}
+        title="DYR AI Assistant"
+        style={{
+          position: 'fixed', bottom: '28px', right: '24px',
+          width: '56px', height: '56px', borderRadius: '18px',
+          background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+          border: 'none', cursor: 'pointer', zIndex: 9997,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: '1.5rem', boxShadow: '0 6px 24px rgba(99,102,241,0.55)',
+          transition: 'transform 0.2s, box-shadow 0.2s',
+          animation: 'aiPulse 3s infinite',
+        }}
+        onMouseEnter={e => {
+          e.currentTarget.style.transform = 'scale(1.1) translateY(-2px)';
+          e.currentTarget.style.boxShadow = '0 10px 32px rgba(99,102,241,0.7)';
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.transform = 'scale(1) translateY(0)';
+          e.currentTarget.style.boxShadow = '0 6px 24px rgba(99,102,241,0.55)';
+        }}
+      >
+        🤖
+        <style>{`
+          @keyframes aiPulse {
+            0%, 100% { box-shadow: 0 6px 24px rgba(99,102,241,0.55); }
+            50% { box-shadow: 0 6px 32px rgba(139,92,246,0.8), 0 0 0 6px rgba(99,102,241,0.15); }
+          }
+        `}</style>
+      </button>
+
+      {/* ---- AI Assistant Panel ---- */}
+      <AIAssistant
+        isOpen={showAIAssistant}
+        onClose={() => setShowAIAssistant(false)}
+        contracts={contracts}
+        installments={installments}
+        customers={customers}
+        buildings={buildings}
+        offers={offers}
+      />
     </>
   );
 };
