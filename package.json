@@ -1,28 +1,58 @@
 {
   "name": "dyr",
-  "productName": "DYR",
+  "version": "1.8.33",
   "private": true,
-  "version": "1.7.8",
   "type": "module",
   "main": "electron/main.js",
-  "author": "DYR",
-  "description": "Real Estate Management Application",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "lint": "eslint .",
     "preview": "vite preview",
-    "server": "node server/index.js",
-    "dev:all": "concurrently \"npm run server\" \"npm run dev\"",
-    "electron": "electron electron/main.js",
-    "dev:electron": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && npm run electron\"",
-    "start": "npm run dev:electron",
-    "mobile:sync": "npm run build && npx cap sync",
-    "mobile:android": "npm run build && npx cap sync android && npx cap open android",
-    "mobile:ios": "npm run build && npx cap sync ios && npx cap open ios",
-    "version:push": "echo 'Run manual Supabase SQL: update app_config set latest_version = \"1.5.6\" where id = \"main\";'",
-    "dist": "npm run build && electron-builder --win",
-    "dist:dir": "npm run build && electron-builder --win --dir"
+    "electron": "electron .",
+    "electron:build": "vite build && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.chrono.realestate",
+    "productName": "DYR",
+    "copyright": "Copyright ط¢آ© 2026 DYR",
+    "asar": true,
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "server/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "electron/assets",
+        "to": "assets",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "electron/assets/icon.ico",
+      "artifactName": "DYR-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "DYR",
+      "include": "build/installer.nsh"
+    },
+    "directories": {
+      "output": "release",
+      "buildResources": "electron/assets"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "chrononw-amer",
+      "repo": "dyr-updates"
+    }
   },
   "dependencies": {
     "@capacitor/app": "^8.0.1",
@@ -70,58 +100,5 @@
     "sharp": "^0.34.5",
     "vite": "^7.2.4",
     "wait-on": "^9.0.3"
-  },
-  "build": {
-    "appId": "com.dyr.app",
-    "asar": true,
-    "compression": "maximum",
-    "publish": {
-      "provider": "github",
-      "owner": "chrononw-amer",
-      "repo": "dyr-updates",
-      "private": true
-    },
-    "productName": "DYR",
-    "artifactName": "DYR-${version}-Setup.${ext}",
-    "directories": {
-      "output": "release",
-      "buildResources": "build"
-    },
-    "files": [
-      "dist/**/*",
-      "electron/**/*",
-      "server/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "assets",
-        "to": "assets",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "server",
-        "to": "server",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
-    "win": {
-      "target": "nsis",
-      "icon": "electron/assets/icon.ico"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "allowElevation": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "DYR",
-      "include": "build/installer.nsh",
-      "deleteAppDataOnUninstall": false
-    }
   }
 }
